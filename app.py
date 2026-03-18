@@ -1,14 +1,16 @@
-from flask import Flask, request, redirect, render_template_string
+from flask import Flask, request, render_template_string
 import psycopg2
 
 app = Flask(__name__)
 
-conn = psycopg2.connect(
-    dbname="registros",
-    user="postgres",
-    password="Giovan12",
-    host="localhost"
-)
+def get_conn():
+    return psycopg2.connect(
+        dbname="registros",
+        user="DatabaseGio",
+        password="giovan12",
+        host="3.143.251.220",  # TU SERVIDOR NUEVO
+        port=5432
+    )
 
 html = """
 <!DOCTYPE html>
@@ -16,31 +18,25 @@ html = """
 <head>
 <title>Registro</title>
 <style>
-
 body{
     font-family:Arial;
     text-align:center;
     background:#f2f2f2;
 }
-
 input{
     padding:10px;
 }
-
 button{
     padding:10px;
 }
-
 table{
     margin:auto;
     border-collapse:collapse;
 }
-
 td,th{
     border:1px solid black;
     padding:10px;
 }
-
 </style>
 </head>
 
@@ -77,11 +73,11 @@ td,th{
 @app.route("/", methods=["GET","POST"])
 def index():
 
+    conn = get_conn()
     cur = conn.cursor()
     mensaje = ""
 
     if request.method == "POST":
-
         email = request.form["email"]
 
         try:
@@ -91,17 +87,16 @@ def index():
             )
             conn.commit()
             mensaje = "correo registrado"
-
-        except:
+        except Exception as e:
             conn.rollback()
             mensaje = "correo ya registrado"
 
     cur.execute("SELECT email FROM users")
     rows = cur.fetchall()
-
     emails = [r[0] for r in rows]
 
     cur.close()
+    conn.close()
 
     return render_template_string(html, emails=emails, mensaje=mensaje)
 
