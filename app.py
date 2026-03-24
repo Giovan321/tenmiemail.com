@@ -21,7 +21,7 @@ html = """
 body{
     font-family:Arial;
     text-align:center;
-    background:#f2f2f2;
+    background:#000080;
 }
 input{
     padding:10px;
