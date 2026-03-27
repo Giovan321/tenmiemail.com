@@ -9,7 +9,7 @@ def get_conn():
         user="DatabaseGio",
         password="giovan12",
         host="18.218.222.117",  # TU SERVIDOR NUEVO
-        port=5432
+        port=5432,
 	connect_timeout=5
     )
 
