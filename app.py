@@ -8,7 +8,7 @@ def get_conn():
         dbname="registros_dev",
         user="DatabaseGio",
         password="giovan12",
-        host="127.0.0.1",  # TU SERVIDOR NUEVO
+        host="18.218.222.117",  # TU SERVIDOR NUEVO
         port=5432
     )
 
