@@ -5,7 +5,7 @@ app = Flask(__name__)
 
 def get_conn():
     return psycopg2.connect(
-        dbname="registros_dev",
+        dbname="registros",
         user="DatabaseGio",
         password="giovan12",
         host="18.218.222.117",
@@ -117,16 +117,11 @@ body::before {
 }
 
 /* ── SCREENS ── */
-.screen { display:none; position:relative; z-index:1; }
-.screen.active { display:block; }
+.screen { display:none !important; position:relative; z-index:1; }
+.screen.active { display:flex !important; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; padding:40px 20px; }
 
 /* ══ LOBBY ══ */
-#lobby {
-    min-height:100vh;
-    display:flex; flex-direction:column;
-    align-items:center; justify-content:center;
-    padding:40px 20px;
-}
+#lobby { }
 .logo {
     font-family:'Press Start 2P',monospace;
     font-size:clamp(1.1rem,3.5vw,2rem);
@@ -154,10 +149,7 @@ body::before {
 .back-link:hover { color:var(--yellow); }
 
 /* ══ SETUP ══ */
-#setup {
-    min-height:100vh; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; padding:40px 20px;
-}
+#setup { }
 .setup-title { font-family:'Press Start 2P',monospace; font-size:0.85rem; color:var(--yellow); margin-bottom:6px; }
 .setup-sub   { color:#555; font-size:0.8rem; margin-bottom:36px; }
 
@@ -202,7 +194,7 @@ body::before {
 .btn-secondary:hover { border-color:#666; color:white; }
 
 /* ══ BATTLE ══ */
-#battle { min-height:100vh; padding:24px 16px; display:flex; flex-direction:column; align-items:center; }
+#battle { }
 .battle-header { font-family:'Press Start 2P',monospace; font-size:0.55rem; color:#444; margin-bottom:18px; letter-spacing:2px; }
 
 .arena {
