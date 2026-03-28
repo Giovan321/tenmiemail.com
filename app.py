@@ -5,7 +5,7 @@ app = Flask(__name__)
 
 def get_conn():
     return psycopg2.connect(
-        dbname="registros_dev",
+        dbname="registros",
         user="DatabaseGio",
         password="giovan12",
         host="18.218.222.117",
@@ -423,13 +423,37 @@ function rnd(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
 let gameMode='bot', name1='', name2='ENEMY', choice1=null, choice2=null;
 let hp1=150, hp2=150, dodge1=false, dodge2=false, turn=0, maxTurns=10, pvpTurn=1;
 
+// ── STARTUP CHECKS ──
+console.log('✅ Pokemon Battle JS loaded OK');
+window.addEventListener('load', ()=>{
+    console.log('✅ Page fully loaded');
+    const testUrls = {
+        'Pikachu':   'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',
+        'Charizard': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png'
+    };
+    Object.entries(testUrls).forEach(([name, url])=>{
+        const img = new Image();
+        img.onload  = ()=> console.log(`✅ ${name} image loaded OK`);
+        img.onerror = ()=> console.error(`❌ ${name} image FAILED — no internet or PokeAPI is down`);
+        img.src = url;
+    });
+    ['lobby','setup','battle'].forEach(id=>{
+        const el = document.getElementById(id);
+        console.log(el ? `✅ Screen #${id} found` : `❌ Screen #${id} MISSING from DOM`);
+    });
+});
+
 function showScreen(id){
+    console.log(`📺 Switching to screen: ${id}`);
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
+    const target = document.getElementById(id);
+    if(!target){ console.error(`❌ showScreen: #${id} not found!`); return; }
+    target.classList.add('active');
     window.scrollTo(0,0);
 }
 
 function startSetup(mode){
+    console.log(`🎮 startSetup called: ${mode}`);
     gameMode=mode;
     choice1=null; choice2=null;
     ['pika-btn','char-btn','pika2-btn','char2-btn'].forEach(id=>{
