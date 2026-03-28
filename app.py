@@ -5,7 +5,7 @@ app = Flask(__name__)
 
 def get_conn():
     return psycopg2.connect(
-        dbname="registros",
+        dbname="registros_dev",
         user="DatabaseGio",
         password="giovan12",
         host="18.218.222.117",
