@@ -55,7 +55,8 @@ td,th{ border:1px solid black; padding:10px; }
 </style>
 </head>
 <body>
-<h1>Registrarse</h1>
+<h1>⚡ Want to play with other people?</h1>
+<p style="font-size:1rem;margin-bottom:16px;">Enter your email so other players can challenge you!</p>
 <form method="POST">
 <input type="email" name="email" placeholder="Tu correo" required>
 <button type="submit">Registrar</button>
@@ -386,7 +387,7 @@ body::before {
         <p  id="result-sub">Battle over</p>
         <div class="result-btns">
             <button class="btn-primary"   onclick="resetGame()">PLAY AGAIN</button>
-            <button class="btn-secondary" onclick="showScreen('lobby')">Main Menu</button>
+            <button class="btn-secondary" onclick="window.location.href='/'">Main Menu</button>
         </div>
     </div>
 </div>
