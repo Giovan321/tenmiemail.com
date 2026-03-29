@@ -1,4 +1,6 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string, session
+from flask_socketio import SocketIO, emit, join_room, leave_room
+import random, string
 import psycopg2
 
 app = Flask(__name__)
@@ -642,6 +644,61 @@ function resetGame(){
 </html>
 """
 
+# ── SOCKETIO SETUP ──
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+# In-memory room state
+rooms = {}  # { room_code: { players: [], game: {} } }
+waiting_pool = []  # list of sid waiting for random match
+
+def make_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+def get_damage(att):
+    if att in ["electro rope", "fire ring"]:   return random.randint(1, 100)
+    elif att in ["iron tail", "ancient power"]: return random.randint(40, 90)
+    elif att in ["elite thunder", "fire ball"]: return random.randint(50, 80)
+    elif att == "charge":                       return 50
+    return 0
+
+# ── DB HELPERS ──
+def get_or_create_user(username):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, wins, losses FROM usernames WHERE username=%s", (username,))
+    row = cur.fetchone()
+    if not row:
+        cur.execute("INSERT INTO usernames (username) VALUES (%s) RETURNING id, wins, losses", (username,))
+        row = cur.fetchone()
+        conn.commit()
+    cur.close(); conn.close()
+    return {"id": row[0], "wins": row[1], "losses": row[2]}
+
+def save_match(p1, p2, winner):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO matches (player1, player2, winner) VALUES (%s,%s,%s)", (p1, p2, winner))
+    if winner == p1:
+        cur.execute("UPDATE usernames SET wins=wins+1 WHERE username=%s", (p1,))
+        cur.execute("UPDATE usernames SET losses=losses+1 WHERE username=%s", (p2,))
+    elif winner == p2:
+        cur.execute("UPDATE usernames SET wins=wins+1 WHERE username=%s", (p2,))
+        cur.execute("UPDATE usernames SET losses=losses+1 WHERE username=%s", (p1,))
+    conn.commit(); cur.close(); conn.close()
+
+def get_stats(username):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT wins, losses FROM usernames WHERE username=%s", (username,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if not row: return None
+    wins, losses = row
+    total = wins + losses
+    rate = round((wins/total)*100) if total > 0 else 0
+    return {"wins": wins, "losses": losses, "total": total, "rate": rate}
+
+# ── FLASK ROUTES ──
 @app.route("/", methods=["GET", "POST"])
 def index():
     conn = get_conn()
@@ -674,5 +731,805 @@ def index():
 def game():
     return render_template_string(game_html)
 
+@app.route("/online")
+def online():
+    return render_template_string(online_html)
+
+@app.route("/online/friend")
+def online_friend():
+    return render_template_string(online_friend_html)
+
+@app.route("/online/random")
+def online_random():
+    return render_template_string(online_random_html)
+
+@app.route("/api/stats/<username>")
+def stats(username):
+    data = get_stats(username)
+    if not data:
+        return {"error": "User not found"}, 404
+    return data
+
+# ── SOCKET EVENTS ──
+@socketio.on('join_friend_room')
+def on_join_friend(data):
+    username = data['username']
+    code     = data.get('code', '').upper().strip()
+    pokemon  = data['pokemon']
+    sid      = request.sid
+
+    get_or_create_user(username)
+
+    if not code:
+        # Create new room
+        code = make_code()
+        rooms[code] = {
+            'players': [{'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False}],
+            'turn': 0,
+            'started': False
+        }
+        join_room(code)
+        emit('room_created', {'code': code})
+    else:
+        # Join existing room
+        if code not in rooms:
+            emit('error', {'msg': 'Room not found'})
+            return
+        room = rooms[code]
+        if len(room['players']) >= 2:
+            emit('error', {'msg': 'Room is full'})
+            return
+        room['players'].append({'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False})
+        join_room(code)
+        start_game(code)
+
+@socketio.on('join_random')
+def on_join_random(data):
+    username = data['username']
+    pokemon  = data['pokemon']
+    sid      = request.sid
+
+    get_or_create_user(username)
+
+    # Check if someone is waiting
+    if waiting_pool:
+        waiting = waiting_pool.pop(0)
+        code = make_code()
+        rooms[code] = {
+            'players': [
+                waiting,
+                {'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False}
+            ],
+            'turn': 0,
+            'started': False
+        }
+        join_room(code)
+        # Also put waiting player in room
+        from flask_socketio import rooms as get_rooms
+        socketio.server.enter_room(waiting['sid'], code)
+        start_game(code)
+    else:
+        waiting_pool.append({'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False})
+        emit('waiting', {'msg': 'Waiting for opponent...'})
+
+@socketio.on('cancel_random')
+def on_cancel_random():
+    global waiting_pool
+    waiting_pool = [p for p in waiting_pool if p['sid'] != request.sid]
+    emit('cancelled')
+
+def start_game(code):
+    room = rooms[code]
+    room['started'] = True
+    p1 = room['players'][0]
+    p2 = room['players'][1]
+    room['turn'] = 0  # 0 = p1's turn, 1 = p2's turn
+    socketio.emit('game_start', {
+        'you':      p1['username'], 'opponent': p2['username'],
+        'your_pokemon': p1['pokemon'], 'opp_pokemon': p2['pokemon'],
+        'your_hp':  150, 'opp_hp': 150,
+        'your_turn': True, 'code': code
+    }, to=p1['sid'])
+    socketio.emit('game_start', {
+        'you':      p2['username'], 'opponent': p1['username'],
+        'your_pokemon': p2['pokemon'], 'opp_pokemon': p1['pokemon'],
+        'your_hp':  150, 'opp_hp': 150,
+        'your_turn': False, 'code': code
+    }, to=p2['sid'])
+
+@socketio.on('attack')
+def on_attack(data):
+    code   = data['code']
+    move   = data['move']
+    sid    = request.sid
+
+    if code not in rooms: return
+    room = rooms[code]
+    players = room['players']
+
+    # Figure out attacker/defender
+    atk_idx = next((i for i,p in enumerate(players) if p['sid']==sid), None)
+    if atk_idx is None: return
+    def_idx = 1 - atk_idx
+
+    # Verify it's their turn
+    if room['turn'] != atk_idx:
+        emit('error', {'msg': "Not your turn"})
+        return
+
+    attacker = players[atk_idx]
+    defender = players[def_idx]
+
+    if move == 'dodge':
+        attacker['dodge'] = True
+        msg = f"🛡️ {attacker['username']} is dodging!"
+        socketio.emit('move_result', {
+            'log': msg, 'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp'],
+            'your_turn': False
+        }, to=attacker['sid'])
+        socketio.emit('move_result', {
+            'log': msg, 'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp'],
+            'your_turn': True
+        }, to=defender['sid'])
+    else:
+        dmg = get_damage(move)
+        if defender['dodge']:
+            dmg = dmg // 10
+            defender['dodge'] = False
+        defender['hp'] -= dmg
+        defender['hp'] = max(0, defender['hp'])
+
+        msg = f"⚔️ {attacker['username']} used {move} — {dmg} damage!"
+
+        if defender['hp'] <= 0:
+            # Game over
+            winner = attacker['username']
+            loser  = defender['username']
+            save_match(players[0]['username'], players[1]['username'], winner)
+            socketio.emit('game_over', {
+                'winner': winner, 'log': msg,
+                'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp']
+            }, room=code)
+            del rooms[code]
+            return
+
+        # Next turn
+        room['turn'] = def_idx
+        socketio.emit('move_result', {
+            'log': msg, 'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp'],
+            'your_turn': False
+        }, to=attacker['sid'])
+        socketio.emit('move_result', {
+            'log': msg, 'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp'],
+            'your_turn': True
+        }, to=defender['sid'])
+
+@socketio.on('disconnect')
+def on_disconnect():
+    sid = request.sid
+    global waiting_pool
+    waiting_pool = [p for p in waiting_pool if p['sid'] != sid]
+    for code, room in list(rooms.items()):
+        for p in room['players']:
+            if p['sid'] == sid:
+                socketio.emit('opponent_left', {'msg': 'Opponent disconnected.'}, room=code)
+                del rooms[code]
+                break
+
+# ── ONLINE HTML PAGES ──
+online_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>⚡ Online Battle</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--yellow:#FFD700;--orange:#FF6B00;--dark:#0d0d1a;--card:#16213e;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;text-align:center;}
+.logo{font-family:'Press Start 2P',monospace;font-size:clamp(1rem,3vw,1.8rem);color:var(--yellow);text-shadow:0 0 30px rgba(255,215,0,0.5),3px 3px 0 #b8860b;margin-bottom:8px;}
+.sub{color:#666;font-size:0.8rem;letter-spacing:3px;text-transform:uppercase;margin-bottom:50px;}
+.cards{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-bottom:40px;}
+.card{background:var(--card);border:2px solid transparent;border-radius:20px;padding:32px 24px;width:210px;cursor:pointer;transition:all 0.25s;text-decoration:none;color:white;display:block;}
+.card:hover{border-color:var(--yellow);transform:translateY(-8px);box-shadow:0 16px 40px rgba(255,215,0,0.2);}
+.card .icon{font-size:3rem;margin-bottom:14px;display:block;}
+.card h3{font-family:'Press Start 2P',monospace;font-size:0.65rem;color:var(--yellow);margin-bottom:10px;}
+.card p{color:#777;font-size:0.8rem;line-height:1.55;}
+.stats-box{background:var(--card);border:1px solid rgba(255,215,0,0.2);border-radius:16px;padding:24px 32px;max-width:400px;width:100%;margin-bottom:28px;}
+.stats-box h3{font-family:'Press Start 2P',monospace;font-size:0.65rem;color:var(--yellow);margin-bottom:16px;}
+.stats-row{display:flex;gap:10px;align-items:center;}
+.stats-row input{flex:1;background:#0d0d1a;border:2px solid #2a3050;color:white;padding:12px 14px;border-radius:10px;font-family:'Nunito',sans-serif;font-size:0.95rem;outline:none;transition:border-color 0.2s;}
+.stats-row input:focus{border-color:var(--yellow);}
+.stats-row button{background:linear-gradient(135deg,var(--orange),var(--yellow));color:#000;border:none;padding:12px 18px;border-radius:10px;font-family:'Press Start 2P',monospace;font-size:0.6rem;cursor:pointer;}
+#stats-result{margin-top:14px;font-size:0.88rem;color:#aaa;line-height:1.8;}
+#stats-result .big{font-family:'Press Start 2P',monospace;font-size:1rem;color:var(--yellow);}
+.back-link{color:#444;font-size:0.78rem;text-decoration:none;transition:color 0.2s;}
+.back-link:hover{color:var(--yellow);}
+</style>
+</head>
+<body>
+<div class="logo">⚡ ONLINE BATTLE</div>
+<p class="sub">Choose your mode</p>
+
+<div class="cards">
+    <a class="card" href="/online/friend">
+        <span class="icon">🤝</span>
+        <h3>PLAY WITH FRIEND</h3>
+        <p>Create a room and share the code, or enter a friend's code to battle.</p>
+    </a>
+    <a class="card" href="/online/random">
+        <span class="icon">🌍</span>
+        <h3>PLAY RANDOM</h3>
+        <p>Get matched with a random opponent from anywhere.</p>
+    </a>
+</div>
+
+<div class="stats-box">
+    <h3>📊 CHECK WIN RATE</h3>
+    <div class="stats-row">
+        <input type="text" id="stats-input" placeholder="Enter username" maxlength="20">
+        <button onclick="checkStats()">GO</button>
+    </div>
+    <div id="stats-result"></div>
+</div>
+
+<a href="/" class="back-link">← Back to home</a>
+
+<script>
+async function checkStats(){
+    const u = document.getElementById('stats-input').value.trim();
+    if(!u) return;
+    const res = await fetch('/api/stats/'+encodeURIComponent(u));
+    const el  = document.getElementById('stats-result');
+    if(res.status===404){ el.innerHTML='❌ Username not found.'; return; }
+    const d = await res.json();
+    el.innerHTML = `<span class="big">${d.rate}%</span> win rate<br>${d.wins} wins · ${d.losses} losses · ${d.total} games`;
+}
+document.getElementById('stats-input').addEventListener('keydown', e=>{ if(e.key==='Enter') checkStats(); });
+</script>
+</body>
+</html>
+"""
+
+online_friend_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>⚡ Play with Friend</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+:root{--yellow:#FFD700;--orange:#FF6B00;--dark:#0d0d1a;--card:#16213e;--pika:#F7C948;--char:#FF4500;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-height:100vh;overflow-x:hidden;}
+.screen{display:none!important;position:relative;z-index:1;}
+.screen.active{display:flex!important;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:40px 20px;}
+.logo{font-family:'Press Start 2P',monospace;font-size:clamp(0.9rem,2.5vw,1.5rem);color:var(--yellow);text-shadow:3px 3px 0 #b8860b;margin-bottom:8px;text-align:center;}
+.sub{color:#666;font-size:0.78rem;letter-spacing:2px;text-transform:uppercase;margin-bottom:36px;text-align:center;}
+.input-group{margin-bottom:16px;text-align:left;}
+.input-group label{display:block;font-size:0.72rem;color:#888;margin-bottom:7px;letter-spacing:1px;text-transform:uppercase;}
+.input-group input{background:var(--card);border:2px solid #2a3050;color:white;padding:13px 16px;border-radius:10px;font-size:1rem;font-family:'Nunito',sans-serif;width:280px;outline:none;transition:border-color 0.2s;}
+.input-group input:focus{border-color:var(--yellow);}
+.pokemon-pick{display:flex;gap:14px;margin-bottom:24px;}
+.poke-btn{flex:1;padding:18px 14px;border:2px solid #2a3050;border-radius:14px;background:var(--card);cursor:pointer;transition:all 0.2s;color:white;font-family:'Nunito',sans-serif;}
+.poke-btn img{width:72px;height:72px;object-fit:contain;display:block;margin:0 auto 8px;}
+.poke-btn span{font-family:'Press Start 2P',monospace;font-size:0.55rem;}
+.poke-btn.sel-pika{border-color:var(--pika);background:rgba(247,201,72,0.1);box-shadow:0 0 16px rgba(247,201,72,0.3);}
+.poke-btn.sel-char{border-color:var(--char);background:rgba(255,69,0,0.1);box-shadow:0 0 16px rgba(255,69,0,0.3);}
+.or-divider{color:#444;font-size:0.8rem;margin:10px 0;text-align:center;}
+.btn-primary{background:linear-gradient(135deg,var(--orange),var(--yellow));color:#000;border:none;padding:15px 44px;border-radius:12px;font-family:'Press Start 2P',monospace;font-size:0.7rem;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;box-shadow:0 4px 18px rgba(255,165,0,0.4);margin-bottom:10px;}
+.btn-primary:hover{transform:translateY(-3px);box-shadow:0 8px 28px rgba(255,165,0,0.6);}
+.btn-secondary{background:transparent;color:#555;border:1px solid #2a3050;padding:11px 22px;border-radius:10px;cursor:pointer;font-family:'Nunito',sans-serif;font-size:0.82rem;transition:all 0.2s;margin-top:6px;}
+.btn-secondary:hover{border-color:#666;color:white;}
+.code-display{font-family:'Press Start 2P',monospace;font-size:2rem;color:var(--yellow);letter-spacing:8px;background:var(--card);padding:20px 32px;border-radius:14px;border:2px solid rgba(255,215,0,0.3);margin:20px 0;text-shadow:0 0 20px rgba(255,215,0,0.4);}
+.waiting-msg{color:#888;font-size:0.85rem;margin-bottom:20px;animation:pulse 1.5s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+/* battle styles */
+.arena{display:flex;align-items:center;justify-content:center;gap:20px;width:100%;max-width:660px;margin-bottom:18px;flex-wrap:wrap;}
+.fighter{flex:1;min-width:130px;max-width:200px;background:var(--card);border-radius:16px;padding:16px 12px;text-align:center;border:2px solid #1e2a4a;transition:border-color 0.3s;}
+.fighter.active-turn{border-color:var(--yellow);box-shadow:0 0 16px rgba(255,215,0,0.2);}
+.fighter.shaking{animation:shake 0.4s;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-7px);}75%{transform:translateX(7px);}}
+.fighter-name{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:#888;margin-bottom:4px;}
+.fighter-poke{font-family:'Press Start 2P',monospace;font-size:0.58rem;color:var(--yellow);margin-bottom:8px;}
+.fighter img{width:80px;height:80px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(255,215,0,0.3));}
+.fighter img.atk{animation:atk-anim 0.5s;}
+@keyframes atk-anim{0%,100%{transform:scale(1);}50%{transform:scale(1.2) rotate(-5deg);}}
+.hp-wrap{margin-top:8px;}
+.hp-label{font-size:0.7rem;color:#888;margin-bottom:3px;display:flex;justify-content:space-between;}
+.hp-label span{color:white;font-weight:700;}
+.hp-bar{height:8px;background:#0d0d1a;border-radius:99px;overflow:hidden;}
+.hp-fill{height:100%;border-radius:99px;transition:width 0.5s,background 0.5s;}
+.hp-fill.high{background:linear-gradient(90deg,#00c853,#69f0ae);}
+.hp-fill.mid{background:linear-gradient(90deg,#ffd600,#ffab00);}
+.hp-fill.low{background:linear-gradient(90deg,#e53935,#ff1744);}
+.vs-badge{font-family:'Press Start 2P',monospace;font-size:1rem;color:#2a3050;flex-shrink:0;}
+.battle-log{width:100%;max-width:660px;background:var(--card);border-radius:12px;padding:12px 16px;min-height:50px;margin-bottom:16px;border-left:3px solid var(--yellow);font-size:0.85rem;color:#ccc;line-height:1.6;}
+.attacks-grid{width:100%;max-width:660px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:8px;}
+.atk-btn{background:var(--card);border:2px solid #1e2a4a;color:white;padding:12px 8px;border-radius:10px;cursor:pointer;font-family:'Nunito',sans-serif;font-size:0.78rem;font-weight:700;transition:all 0.2s;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.atk-btn .dmg{font-size:0.65rem;color:#777;}
+.atk-btn:hover:not(:disabled){border-color:var(--yellow);background:rgba(255,215,0,0.08);transform:translateY(-2px);}
+.atk-btn:disabled{opacity:0.3;cursor:not-allowed;}
+.dodge-btn{border-color:#3a5a80;color:#74b9ff;}
+.dodge-btn:hover:not(:disabled){background:rgba(116,185,255,0.1);border-color:#74b9ff;}
+.turn-label{font-family:'Press Start 2P',monospace;font-size:0.52rem;color:#555;margin-bottom:8px;}
+.result-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:100;align-items:center;justify-content:center;flex-direction:column;}
+.result-overlay.show{display:flex;}
+.result-box{background:var(--card);border:2px solid var(--yellow);border-radius:22px;padding:40px 50px;text-align:center;animation:pop-in 0.4s cubic-bezier(0.175,0.885,0.32,1.275);}
+@keyframes pop-in{from{transform:scale(0.5);opacity:0;}to{transform:scale(1);opacity:1;}}
+.result-box img{width:100px;height:100px;object-fit:contain;margin-bottom:12px;filter:drop-shadow(0 0 16px gold);}
+.result-box h2{font-family:'Press Start 2P',monospace;font-size:0.9rem;color:var(--yellow);margin-bottom:8px;}
+.result-box p{color:#888;font-size:0.82rem;margin-bottom:20px;}
+.result-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="setup" class="screen active">
+    <div class="logo">🤝 PLAY WITH FRIEND</div>
+    <p class="sub">Create or join a room</p>
+
+    <div class="input-group">
+        <label>Your Username</label>
+        <input type="text" id="username" maxlength="20" placeholder="Ash" autocomplete="off">
+    </div>
+
+    <p style="color:#555;font-size:0.72rem;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;">Choose your Pokémon</p>
+    <div class="pokemon-pick">
+        <button class="poke-btn" id="pika-btn" onclick="selPoke('pikachu')">
+            <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png">
+            <span>PIKACHU</span>
+        </button>
+        <button class="poke-btn" id="char-btn" onclick="selPoke('charizard')">
+            <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png">
+            <span>CHARIZARD</span>
+        </button>
+    </div>
+
+    <button class="btn-primary" onclick="createRoom()">CREATE ROOM</button>
+    <div class="or-divider">— or enter a code —</div>
+    <div class="input-group" style="margin-bottom:10px;">
+        <input type="text" id="room-code-input" maxlength="6" placeholder="ABC123" autocomplete="off" style="text-transform:uppercase;letter-spacing:4px;text-align:center;">
+    </div>
+    <button class="btn-primary" onclick="joinRoom()">JOIN ROOM</button>
+    <br>
+    <button class="btn-secondary" onclick="window.location.href='/online'">← Back</button>
+</div>
+
+<!-- WAITING SCREEN -->
+<div id="waiting" class="screen">
+    <div class="logo">⏳ WAITING...</div>
+    <p class="sub">Share this code with your friend</p>
+    <div class="code-display" id="room-code-display">------</div>
+    <p class="waiting-msg">Waiting for opponent to join...</p>
+    <button class="btn-secondary" onclick="window.location.href='/online/friend'">Cancel</button>
+</div>
+
+<!-- BATTLE SCREEN -->
+<div id="battle" class="screen">
+    <div class="arena">
+        <div class="fighter" id="f-you">
+            <div class="fighter-name" id="f-you-name">YOU</div>
+            <div class="fighter-poke"  id="f-you-poke">PIKACHU</div>
+            <img id="f-you-img" src="">
+            <div class="hp-wrap">
+                <div class="hp-label">HP <span id="f-you-hp">150</span>/150</div>
+                <div class="hp-bar"><div class="hp-fill high" id="f-you-bar" style="width:100%"></div></div>
+            </div>
+        </div>
+        <div class="vs-badge">VS</div>
+        <div class="fighter" id="f-opp">
+            <div class="fighter-name" id="f-opp-name">OPP</div>
+            <div class="fighter-poke"  id="f-opp-poke">CHARIZARD</div>
+            <img id="f-opp-img" src="">
+            <div class="hp-wrap">
+                <div class="hp-label">HP <span id="f-opp-hp">150</span>/150</div>
+                <div class="hp-bar"><div class="hp-fill high" id="f-opp-bar" style="width:100%"></div></div>
+            </div>
+        </div>
+    </div>
+    <div class="turn-label" id="turn-label">YOUR TURN</div>
+    <div class="battle-log" id="battle-log">Battle begins!</div>
+    <div class="attacks-grid" id="attacks-grid"></div>
+</div>
+
+<!-- RESULT OVERLAY -->
+<div class="result-overlay" id="result-overlay">
+    <div class="result-box">
+        <img id="res-img" src="">
+        <h2 id="res-title">WINNER!</h2>
+        <p  id="res-sub"></p>
+        <div class="result-btns">
+            <button class="btn-primary"   onclick="window.location.href='/online/friend'">Play Again</button>
+            <button class="btn-secondary" onclick="window.location.href='/online'">Main Menu</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const POKE_IMG = {
+    pikachu:  'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',
+    charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png'
+};
+const ATTACKS = {
+    pikachu:  [{name:'Electro Rope',dmg:'1–100'},{name:'Iron Tail',dmg:'40–90'},{name:'Elite Thunder',dmg:'50–80'},{name:'Charge',dmg:'50'}],
+    charizard:[{name:'Fire Ring',dmg:'1–100'},{name:'Ancient Power',dmg:'40–90'},{name:'Fire Ball',dmg:'50–80'},{name:'Charge',dmg:'50'}]
+};
+
+const socket = io();
+let myPokemon='', myUsername='', roomCode='', myTurn=false, myIdx=0;
+
+function showScreen(id){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+}
+
+function selPoke(p){
+    myPokemon=p;
+    document.getElementById('pika-btn').className='poke-btn'+(p==='pikachu'?' sel-pika':'');
+    document.getElementById('char-btn').className='poke-btn'+(p==='charizard'?' sel-char':'');
+}
+
+function validate(){
+    const u=document.getElementById('username').value.trim();
+    if(!u){alert('Enter a username!');return null;}
+    if(!myPokemon){alert('Choose a Pokémon!');return null;}
+    myUsername=u;
+    return u;
+}
+
+function createRoom(){
+    if(!validate()) return;
+    socket.emit('join_friend_room',{username:myUsername, pokemon:myPokemon, code:''});
+}
+
+function joinRoom(){
+    if(!validate()) return;
+    const code=document.getElementById('room-code-input').value.trim().toUpperCase();
+    if(!code){alert('Enter a room code!');return;}
+    socket.emit('join_friend_room',{username:myUsername, pokemon:myPokemon, code:code});
+}
+
+socket.on('room_created', d=>{
+    roomCode=d.code;
+    document.getElementById('room-code-display').textContent=d.code;
+    showScreen('waiting');
+});
+
+socket.on('error', d=>alert(d.msg));
+
+socket.on('game_start', d=>{
+    roomCode=d.code; myTurn=d.your_turn;
+    document.getElementById('f-you-name').textContent=d.you;
+    document.getElementById('f-opp-name').textContent=d.opponent;
+    document.getElementById('f-you-poke').textContent=d.your_pokemon.toUpperCase();
+    document.getElementById('f-opp-poke').textContent=d.opp_pokemon.toUpperCase();
+    document.getElementById('f-you-img').src=POKE_IMG[d.your_pokemon];
+    document.getElementById('f-opp-img').src=POKE_IMG[d.opp_pokemon];
+    myPokemon=d.your_pokemon;
+    updateHP(d.your_hp, d.opp_hp);
+    renderAttacks(myTurn);
+    showScreen('battle');
+    setLog('Battle begins! ' + (myTurn?'Your turn!':'Waiting for opponent...'));
+});
+
+socket.on('move_result', d=>{
+    updateHP(d.your_hp!==undefined?d.your_hp:null, d.opp_hp!==undefined?d.opp_hp:null, d);
+    myTurn=d.your_turn;
+    setLog(d.log);
+    renderAttacks(myTurn);
+    const defEl=document.getElementById(myTurn?'f-opp':'f-you');
+    defEl.classList.add('shaking');
+    setTimeout(()=>defEl.classList.remove('shaking'),400);
+});
+
+socket.on('game_over', d=>{
+    updateHP(null,null,d);
+    setLog(d.log);
+    const won = d.winner===myUsername;
+    document.getElementById('res-img').src=won?POKE_IMG[myPokemon]:POKE_IMG[myPokemon==='pikachu'?'charizard':'pikachu'];
+    document.getElementById('res-title').textContent=won?'YOU WIN! 🏆':'YOU LOST 💀';
+    document.getElementById('res-sub').textContent=won?'GG! Victory recorded.':'Better luck next time!';
+    document.getElementById('result-overlay').classList.add('show');
+});
+
+socket.on('opponent_left', d=>{
+    alert(d.msg);
+    window.location.href='/online/friend';
+});
+
+function updateHP(yourHp, oppHp, d){
+    // If called from move_result we need to figure out which is p1/p2
+    if(d && d.p1_hp!==undefined){
+        // We'll just use the your_turn flag to figure which side changed
+        setBar('f-you-bar','f-you-hp', yourHp!==null?yourHp:parseInt(document.getElementById('f-you-hp').textContent));
+        setBar('f-opp-bar','f-opp-hp', oppHp!==null?oppHp:parseInt(document.getElementById('f-opp-hp').textContent));
+    } else {
+        if(yourHp!==null) setBar('f-you-bar','f-you-hp',yourHp);
+        if(oppHp!==null)  setBar('f-opp-bar','f-opp-hp',oppHp);
+    }
+}
+
+function setBar(barId,numId,hp){
+    const pct=Math.max(0,(hp/150)*100);
+    const bar=document.getElementById(barId);
+    if(!bar) return;
+    bar.style.width=pct+'%';
+    bar.className='hp-fill '+(pct>50?'high':pct>20?'mid':'low');
+    document.getElementById(numId).textContent=Math.max(0,hp);
+}
+
+function setLog(msg){ document.getElementById('battle-log').innerHTML=msg; }
+
+function renderAttacks(myTurn){
+    const grid=document.getElementById('attacks-grid');
+    grid.innerHTML='';
+    document.getElementById('turn-label').textContent=myTurn?"YOUR TURN":"OPPONENT'S TURN...";
+    document.getElementById('f-you').classList.toggle('active-turn',myTurn);
+    document.getElementById('f-opp').classList.toggle('active-turn',!myTurn);
+    ATTACKS[myPokemon].forEach(atk=>{
+        const btn=document.createElement('button');
+        btn.className='atk-btn';
+        btn.disabled=!myTurn;
+        btn.innerHTML=`<span>${atk.name}</span><span class="dmg">${atk.dmg} dmg</span>`;
+        btn.onclick=()=>sendAttack(atk.name.toLowerCase());
+        grid.appendChild(btn);
+    });
+    const d=document.createElement('button');
+    d.className='atk-btn dodge-btn';
+    d.disabled=!myTurn;
+    d.innerHTML='<span>🛡️ Dodge</span><span class="dmg">10% next hit</span>';
+    d.onclick=()=>sendAttack('dodge');
+    grid.appendChild(d);
+}
+
+function sendAttack(move){
+    document.querySelectorAll('.atk-btn').forEach(b=>b.disabled=true);
+    socket.emit('attack',{code:roomCode, move:move});
+}
+</script>
+</body>
+</html>
+"""
+
+online_random_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>⚡ Random Battle</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+:root{--yellow:#FFD700;--orange:#FF6B00;--dark:#0d0d1a;--card:#16213e;--pika:#F7C948;--char:#FF4500;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-height:100vh;overflow-x:hidden;}
+.screen{display:none!important;position:relative;z-index:1;}
+.screen.active{display:flex!important;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:40px 20px;}
+.logo{font-family:'Press Start 2P',monospace;font-size:clamp(0.9rem,2.5vw,1.5rem);color:var(--yellow);text-shadow:3px 3px 0 #b8860b;margin-bottom:8px;text-align:center;}
+.sub{color:#666;font-size:0.78rem;letter-spacing:2px;text-transform:uppercase;margin-bottom:36px;text-align:center;}
+.input-group{margin-bottom:16px;text-align:left;}
+.input-group label{display:block;font-size:0.72rem;color:#888;margin-bottom:7px;letter-spacing:1px;text-transform:uppercase;}
+.input-group input{background:var(--card);border:2px solid #2a3050;color:white;padding:13px 16px;border-radius:10px;font-size:1rem;font-family:'Nunito',sans-serif;width:280px;outline:none;transition:border-color 0.2s;}
+.input-group input:focus{border-color:var(--yellow);}
+.pokemon-pick{display:flex;gap:14px;margin-bottom:24px;}
+.poke-btn{flex:1;padding:18px 14px;border:2px solid #2a3050;border-radius:14px;background:var(--card);cursor:pointer;transition:all 0.2s;color:white;font-family:'Nunito',sans-serif;}
+.poke-btn img{width:72px;height:72px;object-fit:contain;display:block;margin:0 auto 8px;}
+.poke-btn span{font-family:'Press Start 2P',monospace;font-size:0.55rem;}
+.poke-btn.sel-pika{border-color:var(--pika);background:rgba(247,201,72,0.1);box-shadow:0 0 16px rgba(247,201,72,0.3);}
+.poke-btn.sel-char{border-color:var(--char);background:rgba(255,69,0,0.1);box-shadow:0 0 16px rgba(255,69,0,0.3);}
+.btn-primary{background:linear-gradient(135deg,var(--orange),var(--yellow));color:#000;border:none;padding:15px 44px;border-radius:12px;font-family:'Press Start 2P',monospace;font-size:0.7rem;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;box-shadow:0 4px 18px rgba(255,165,0,0.4);margin-bottom:10px;}
+.btn-primary:hover{transform:translateY(-3px);box-shadow:0 8px 28px rgba(255,165,0,0.6);}
+.btn-secondary{background:transparent;color:#555;border:1px solid #2a3050;padding:11px 22px;border-radius:10px;cursor:pointer;font-family:'Nunito',sans-serif;font-size:0.82rem;transition:all 0.2s;margin-top:6px;}
+.btn-secondary:hover{border-color:#666;color:white;}
+.waiting-msg{color:#888;font-size:0.88rem;margin-bottom:20px;animation:pulse 1.5s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.arena{display:flex;align-items:center;justify-content:center;gap:20px;width:100%;max-width:660px;margin-bottom:18px;flex-wrap:wrap;}
+.fighter{flex:1;min-width:130px;max-width:200px;background:var(--card);border-radius:16px;padding:16px 12px;text-align:center;border:2px solid #1e2a4a;transition:border-color 0.3s;}
+.fighter.active-turn{border-color:var(--yellow);box-shadow:0 0 16px rgba(255,215,0,0.2);}
+.fighter.shaking{animation:shake 0.4s;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-7px);}75%{transform:translateX(7px);}}
+.fighter-name{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:#888;margin-bottom:4px;}
+.fighter-poke{font-family:'Press Start 2P',monospace;font-size:0.58rem;color:var(--yellow);margin-bottom:8px;}
+.fighter img{width:80px;height:80px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(255,215,0,0.3));}
+.hp-wrap{margin-top:8px;}
+.hp-label{font-size:0.7rem;color:#888;margin-bottom:3px;display:flex;justify-content:space-between;}
+.hp-label span{color:white;font-weight:700;}
+.hp-bar{height:8px;background:#0d0d1a;border-radius:99px;overflow:hidden;}
+.hp-fill{height:100%;border-radius:99px;transition:width 0.5s,background 0.5s;}
+.hp-fill.high{background:linear-gradient(90deg,#00c853,#69f0ae);}
+.hp-fill.mid{background:linear-gradient(90deg,#ffd600,#ffab00);}
+.hp-fill.low{background:linear-gradient(90deg,#e53935,#ff1744);}
+.vs-badge{font-family:'Press Start 2P',monospace;font-size:1rem;color:#2a3050;flex-shrink:0;}
+.battle-log{width:100%;max-width:660px;background:var(--card);border-radius:12px;padding:12px 16px;min-height:50px;margin-bottom:16px;border-left:3px solid var(--yellow);font-size:0.85rem;color:#ccc;line-height:1.6;}
+.attacks-grid{width:100%;max-width:660px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;}
+.atk-btn{background:var(--card);border:2px solid #1e2a4a;color:white;padding:12px 8px;border-radius:10px;cursor:pointer;font-family:'Nunito',sans-serif;font-size:0.78rem;font-weight:700;transition:all 0.2s;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.atk-btn .dmg{font-size:0.65rem;color:#777;}
+.atk-btn:hover:not(:disabled){border-color:var(--yellow);background:rgba(255,215,0,0.08);transform:translateY(-2px);}
+.atk-btn:disabled{opacity:0.3;cursor:not-allowed;}
+.dodge-btn{border-color:#3a5a80;color:#74b9ff;}
+.dodge-btn:hover:not(:disabled){background:rgba(116,185,255,0.1);border-color:#74b9ff;}
+.turn-label{font-family:'Press Start 2P',monospace;font-size:0.52rem;color:#555;margin-bottom:8px;}
+.result-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:100;align-items:center;justify-content:center;flex-direction:column;}
+.result-overlay.show{display:flex;}
+.result-box{background:var(--card);border:2px solid var(--yellow);border-radius:22px;padding:40px 50px;text-align:center;animation:pop-in 0.4s cubic-bezier(0.175,0.885,0.32,1.275);}
+@keyframes pop-in{from{transform:scale(0.5);opacity:0;}to{transform:scale(1);opacity:1;}}
+.result-box img{width:100px;height:100px;object-fit:contain;margin-bottom:12px;filter:drop-shadow(0 0 16px gold);}
+.result-box h2{font-family:'Press Start 2P',monospace;font-size:0.9rem;color:var(--yellow);margin-bottom:8px;}
+.result-box p{color:#888;font-size:0.82rem;margin-bottom:20px;}
+.result-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+
+<!-- SETUP -->
+<div id="setup" class="screen active">
+    <div class="logo">🌍 RANDOM BATTLE</div>
+    <p class="sub">Get matched with a stranger</p>
+    <div class="input-group">
+        <label>Your Username</label>
+        <input type="text" id="username" maxlength="20" placeholder="Ash" autocomplete="off">
+    </div>
+    <p style="color:#555;font-size:0.72rem;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;">Choose your Pokémon</p>
+    <div class="pokemon-pick">
+        <button class="poke-btn" id="pika-btn" onclick="selPoke('pikachu')">
+            <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png">
+            <span>PIKACHU</span>
+        </button>
+        <button class="poke-btn" id="char-btn" onclick="selPoke('charizard')">
+            <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png">
+            <span>CHARIZARD</span>
+        </button>
+    </div>
+    <button class="btn-primary" onclick="findMatch()">FIND MATCH 🔍</button>
+    <br>
+    <button class="btn-secondary" onclick="window.location.href='/online'">← Back</button>
+</div>
+
+<!-- WAITING -->
+<div id="waiting" class="screen">
+    <div class="logo">🔍 SEARCHING...</div>
+    <p class="waiting-msg">Looking for an opponent...</p>
+    <button class="btn-secondary" onclick="cancelSearch()">Cancel</button>
+</div>
+
+<!-- BATTLE -->
+<div id="battle" class="screen">
+    <div class="arena">
+        <div class="fighter" id="f-you">
+            <div class="fighter-name" id="f-you-name">YOU</div>
+            <div class="fighter-poke"  id="f-you-poke">PIKACHU</div>
+            <img id="f-you-img" src="">
+            <div class="hp-wrap">
+                <div class="hp-label">HP <span id="f-you-hp">150</span>/150</div>
+                <div class="hp-bar"><div class="hp-fill high" id="f-you-bar" style="width:100%"></div></div>
+            </div>
+        </div>
+        <div class="vs-badge">VS</div>
+        <div class="fighter" id="f-opp">
+            <div class="fighter-name" id="f-opp-name">OPP</div>
+            <div class="fighter-poke"  id="f-opp-poke">CHARIZARD</div>
+            <img id="f-opp-img" src="">
+            <div class="hp-wrap">
+                <div class="hp-label">HP <span id="f-opp-hp">150</span>/150</div>
+                <div class="hp-bar"><div class="hp-fill high" id="f-opp-bar" style="width:100%"></div></div>
+            </div>
+        </div>
+    </div>
+    <div class="turn-label" id="turn-label">YOUR TURN</div>
+    <div class="battle-log" id="battle-log">Battle begins!</div>
+    <div class="attacks-grid" id="attacks-grid"></div>
+</div>
+
+<!-- RESULT -->
+<div class="result-overlay" id="result-overlay">
+    <div class="result-box">
+        <img id="res-img" src="">
+        <h2 id="res-title">WINNER!</h2>
+        <p  id="res-sub"></p>
+        <div class="result-btns">
+            <button class="btn-primary"   onclick="window.location.href='/online/random'">Play Again</button>
+            <button class="btn-secondary" onclick="window.location.href='/online'">Main Menu</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const POKE_IMG={pikachu:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png'};
+const ATTACKS={pikachu:[{name:'Electro Rope',dmg:'1–100'},{name:'Iron Tail',dmg:'40–90'},{name:'Elite Thunder',dmg:'50–80'},{name:'Charge',dmg:'50'}],charizard:[{name:'Fire Ring',dmg:'1–100'},{name:'Ancient Power',dmg:'40–90'},{name:'Fire Ball',dmg:'50–80'},{name:'Charge',dmg:'50'}]};
+const socket=io();
+let myPokemon='',myUsername='',roomCode='',myTurn=false;
+
+function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
+function selPoke(p){myPokemon=p;document.getElementById('pika-btn').className='poke-btn'+(p==='pikachu'?' sel-pika':'');document.getElementById('char-btn').className='poke-btn'+(p==='charizard'?' sel-char':'');}
+
+function findMatch(){
+    const u=document.getElementById('username').value.trim();
+    if(!u){alert('Enter a username!');return;}
+    if(!myPokemon){alert('Choose a Pokémon!');return;}
+    myUsername=u;
+    socket.emit('join_random',{username:myUsername,pokemon:myPokemon});
+    showScreen('waiting');
+}
+
+function cancelSearch(){
+    socket.emit('cancel_random');
+    window.location.href='/online';
+}
+
+socket.on('waiting',()=>showScreen('waiting'));
+socket.on('error',d=>alert(d.msg));
+socket.on('cancelled',()=>window.location.href='/online');
+
+socket.on('game_start',d=>{
+    roomCode=d.code; myTurn=d.your_turn; myPokemon=d.your_pokemon;
+    document.getElementById('f-you-name').textContent=d.you;
+    document.getElementById('f-opp-name').textContent=d.opponent;
+    document.getElementById('f-you-poke').textContent=d.your_pokemon.toUpperCase();
+    document.getElementById('f-opp-poke').textContent=d.opp_pokemon.toUpperCase();
+    document.getElementById('f-you-img').src=POKE_IMG[d.your_pokemon];
+    document.getElementById('f-opp-img').src=POKE_IMG[d.opp_pokemon];
+    setBar('f-you-bar','f-you-hp',150);
+    setBar('f-opp-bar','f-opp-hp',150);
+    renderAttacks(myTurn);
+    showScreen('battle');
+    setLog('Battle begins! '+(myTurn?'Your turn!':'Waiting for opponent...'));
+});
+
+socket.on('move_result',d=>{
+    myTurn=d.your_turn;
+    setLog(d.log);
+    // Update HP from perspective
+    // p1_hp and p2_hp are absolute; we need to know which is ours
+    // Server sends your_hp via perspective - reuse p1/p2 with your_turn flag
+    renderAttacks(myTurn);
+    const defEl=document.getElementById(myTurn?'f-opp':'f-you');
+    defEl.classList.add('shaking');
+    setTimeout(()=>defEl.classList.remove('shaking'),400);
+});
+
+socket.on('game_over',d=>{
+    setLog(d.log);
+    const won=d.winner===myUsername;
+    document.getElementById('res-img').src=won?POKE_IMG[myPokemon]:POKE_IMG[myPokemon==='pikachu'?'charizard':'pikachu'];
+    document.getElementById('res-title').textContent=won?'YOU WIN! 🏆':'YOU LOST 💀';
+    document.getElementById('res-sub').textContent=won?'GG! Victory recorded.':'Better luck next time!';
+    document.getElementById('result-overlay').classList.add('show');
+});
+
+socket.on('opponent_left',d=>{alert(d.msg);window.location.href='/online/random';});
+
+function setBar(barId,numId,hp){const pct=Math.max(0,(hp/150)*100);const bar=document.getElementById(barId);if(!bar)return;bar.style.width=pct+'%';bar.className='hp-fill '+(pct>50?'high':pct>20?'mid':'low');document.getElementById(numId).textContent=Math.max(0,Math.round(hp));}
+function setLog(msg){document.getElementById('battle-log').innerHTML=msg;}
+
+function renderAttacks(myTurn){
+    const grid=document.getElementById('attacks-grid');
+    grid.innerHTML='';
+    document.getElementById('turn-label').textContent=myTurn?"YOUR TURN":"OPPONENT'S TURN...";
+    document.getElementById('f-you').classList.toggle('active-turn',myTurn);
+    document.getElementById('f-opp').classList.toggle('active-turn',!myTurn);
+    ATTACKS[myPokemon].forEach(atk=>{
+        const btn=document.createElement('button');
+        btn.className='atk-btn'; btn.disabled=!myTurn;
+        btn.innerHTML=`<span>${atk.name}</span><span class="dmg">${atk.dmg} dmg</span>`;
+        btn.onclick=()=>sendAttack(atk.name.toLowerCase());
+        grid.appendChild(btn);
+    });
+    const d=document.createElement('button');
+    d.className='atk-btn dodge-btn'; d.disabled=!myTurn;
+    d.innerHTML='<span>🛡️ Dodge</span><span class="dmg">10% next hit</span>';
+    d.onclick=()=>sendAttack('dodge');
+    grid.appendChild(d);
+}
+
+function sendAttack(move){document.querySelectorAll('.atk-btn').forEach(b=>b.disabled=true);socket.emit('attack',{code:roomCode,move:move});}
+</script>
+</body>
+</html>
+"""
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
