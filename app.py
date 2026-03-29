@@ -865,6 +865,7 @@ def on_attack(data):
 
     if move == 'dodge':
         attacker['dodge'] = True
+        room['turn'] = def_idx  # switch turn to defender
         msg = f"🛡️ {attacker['username']} is dodging!"
         socketio.emit('move_result', {
             'log': msg,
