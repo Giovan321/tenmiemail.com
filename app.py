@@ -66,7 +66,9 @@ td,th{ border:1px solid black; padding:10px; }
 
 <div class="game-banner">
     <h2>⚡ Pokémon Battle</h2>
-    <a class="game-btn" href="/game">🕹️ Free Game Here</a>
+    <a class="game-btn" href="/game">🕹️ Local Game</a>
+    &nbsp;&nbsp;
+    <a class="game-btn" href="/online">🌍 Play Online</a>
 </div>
 
 <h2>Correos registrados</h2>
@@ -303,6 +305,7 @@ body::before {
     </div>
 
     <a href="/" class="back-link">← Back to home</a>
+    <a href="/online" class="back-link" style="margin-left:20px;">🌍 Play Online</a>
 </div>
 
 <!-- ══════════ SETUP ══════════ -->
@@ -864,11 +867,13 @@ def on_attack(data):
         attacker['dodge'] = True
         msg = f"🛡️ {attacker['username']} is dodging!"
         socketio.emit('move_result', {
-            'log': msg, 'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp'],
+            'log': msg,
+            'your_hp': attacker['hp'], 'opp_hp': defender['hp'],
             'your_turn': False
         }, to=attacker['sid'])
         socketio.emit('move_result', {
-            'log': msg, 'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp'],
+            'log': msg,
+            'your_hp': defender['hp'], 'opp_hp': attacker['hp'],
             'your_turn': True
         }, to=defender['sid'])
     else:
@@ -882,25 +887,29 @@ def on_attack(data):
         msg = f"⚔️ {attacker['username']} used {move} — {dmg} damage!"
 
         if defender['hp'] <= 0:
-            # Game over
             winner = attacker['username']
-            loser  = defender['username']
             save_match(players[0]['username'], players[1]['username'], winner)
             socketio.emit('game_over', {
                 'winner': winner, 'log': msg,
-                'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp']
-            }, room=code)
+                'your_hp': attacker['hp'], 'opp_hp': defender['hp']
+            }, to=attacker['sid'])
+            socketio.emit('game_over', {
+                'winner': winner, 'log': msg,
+                'your_hp': defender['hp'], 'opp_hp': attacker['hp']
+            }, to=defender['sid'])
             del rooms[code]
             return
 
         # Next turn
         room['turn'] = def_idx
         socketio.emit('move_result', {
-            'log': msg, 'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp'],
+            'log': msg,
+            'your_hp': attacker['hp'], 'opp_hp': defender['hp'],
             'your_turn': False
         }, to=attacker['sid'])
         socketio.emit('move_result', {
-            'log': msg, 'p1_hp': players[0]['hp'], 'p2_hp': players[1]['hp'],
+            'log': msg,
+            'your_hp': defender['hp'], 'opp_hp': attacker['hp'],
             'your_turn': True
         }, to=defender['sid'])
 
@@ -1217,7 +1226,8 @@ socket.on('game_start', d=>{
 });
 
 socket.on('move_result', d=>{
-    updateHP(d.your_hp!==undefined?d.your_hp:null, d.opp_hp!==undefined?d.opp_hp:null, d);
+    setBar('f-you-bar','f-you-hp', d.your_hp);
+    setBar('f-opp-bar','f-opp-hp', d.opp_hp);
     myTurn=d.your_turn;
     setLog(d.log);
     renderAttacks(myTurn);
@@ -1227,7 +1237,8 @@ socket.on('move_result', d=>{
 });
 
 socket.on('game_over', d=>{
-    updateHP(null,null,d);
+    setBar('f-you-bar','f-you-hp', d.your_hp);
+    setBar('f-opp-bar','f-opp-hp', d.opp_hp);
     setLog(d.log);
     const won = d.winner===myUsername;
     document.getElementById('res-img').src=won?POKE_IMG[myPokemon]:POKE_IMG[myPokemon==='pikachu'?'charizard':'pikachu'];
@@ -1240,18 +1251,6 @@ socket.on('opponent_left', d=>{
     alert(d.msg);
     window.location.href='/online/friend';
 });
-
-function updateHP(yourHp, oppHp, d){
-    // If called from move_result we need to figure out which is p1/p2
-    if(d && d.p1_hp!==undefined){
-        // We'll just use the your_turn flag to figure which side changed
-        setBar('f-you-bar','f-you-hp', yourHp!==null?yourHp:parseInt(document.getElementById('f-you-hp').textContent));
-        setBar('f-opp-bar','f-opp-hp', oppHp!==null?oppHp:parseInt(document.getElementById('f-opp-hp').textContent));
-    } else {
-        if(yourHp!==null) setBar('f-you-bar','f-you-hp',yourHp);
-        if(oppHp!==null)  setBar('f-opp-bar','f-opp-hp',oppHp);
-    }
-}
 
 function setBar(barId,numId,hp){
     const pct=Math.max(0,(hp/150)*100);
@@ -1480,11 +1479,10 @@ socket.on('game_start',d=>{
 });
 
 socket.on('move_result',d=>{
+    setBar('f-you-bar','f-you-hp', d.your_hp);
+    setBar('f-opp-bar','f-opp-hp', d.opp_hp);
     myTurn=d.your_turn;
     setLog(d.log);
-    // Update HP from perspective
-    // p1_hp and p2_hp are absolute; we need to know which is ours
-    // Server sends your_hp via perspective - reuse p1/p2 with your_turn flag
     renderAttacks(myTurn);
     const defEl=document.getElementById(myTurn?'f-opp':'f-you');
     defEl.classList.add('shaking');
@@ -1492,6 +1490,8 @@ socket.on('move_result',d=>{
 });
 
 socket.on('game_over',d=>{
+    setBar('f-you-bar','f-you-hp', d.your_hp);
+    setBar('f-opp-bar','f-opp-hp', d.opp_hp);
     setLog(d.log);
     const won=d.winner===myUsername;
     document.getElementById('res-img').src=won?POKE_IMG[myPokemon]:POKE_IMG[myPokemon==='pikachu'?'charizard':'pikachu'];
