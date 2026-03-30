@@ -254,6 +254,7 @@ game_html = """
     --card:   #16213e;
     --pika:   #F7C948;
     --char:   #FF4500;
+    --bulb:   #78C850;
 }
 * { box-sizing:border-box; margin:0; padding:0; }
 body {
@@ -334,6 +335,7 @@ body::before {
 .poke-btn span { font-family:'Press Start 2P',monospace; font-size:0.55rem; }
 .poke-btn.selected-pika { border-color:var(--pika); background:rgba(247,201,72,0.1); box-shadow:0 0 18px rgba(247,201,72,0.3); }
 .poke-btn.selected-char { border-color:var(--char); background:rgba(255,69,0,0.1);  box-shadow:0 0 18px rgba(255,69,0,0.3);  }
+.poke-btn.selected-bulb { border-color:var(--bulb); background:rgba(120,200,80,0.1); box-shadow:0 0 18px rgba(120,200,80,0.3); }
 .poke-btn:hover { transform:scale(1.05); }
 
 .btn-primary {
@@ -400,6 +402,7 @@ body::before {
 .log-dmg   { color:#ff6b6b; font-weight:700; }
 .log-dodge { color:#74b9ff; font-weight:700; }
 .log-bot   { color:#fd79a8; }
+.log-heal  { color:#69f0ae; font-weight:700; }
 
 .attacks-grid {
     width:100%; max-width:680px;
@@ -489,6 +492,10 @@ body::before {
             <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png" alt="Charizard">
             <span>CHARIZARD</span>
         </button>
+        <button class="poke-btn" id="bulb-btn" onclick="selectPoke(1,'bulbasaur')">
+            <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png" alt="Bulbasaur">
+            <span>BULBASAUR</span>
+        </button>
     </div>
 
     <div id="poke2-group" style="display:none">
@@ -501,6 +508,10 @@ body::before {
             <button class="poke-btn" id="char2-btn" onclick="selectPoke(2,'charizard')">
                 <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png" alt="Charizard">
                 <span>CHARIZARD</span>
+            </button>
+            <button class="poke-btn" id="bulb2-btn" onclick="selectPoke(2,'bulbasaur')">
+                <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png" alt="Bulbasaur">
+                <span>BULBASAUR</span>
             </button>
         </div>
     </div>
@@ -546,6 +557,7 @@ body::before {
         <img id="result-img" src="" alt="" style="display:none">
         <h2 id="result-title">WINNER!</h2>
         <p  id="result-sub">Battle over</p>
+        <p  id="result-fav" style="color:#69f0ae;font-size:0.78rem;margin-bottom:8px;"></p>
         <div class="result-btns">
             <button class="btn-primary"   onclick="resetGame()">PLAY AGAIN</button>
             <button class="btn-secondary" onclick="window.location.href='/'">Main Menu</button>
@@ -556,7 +568,8 @@ body::before {
 <script>
 const POKE_IMG = {
     pikachu:  'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',
-    charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png'
+    charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png',
+    bulbasaur:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png'
 };
 const ATTACKS = {
     pikachu: [
@@ -570,12 +583,18 @@ const ATTACKS = {
         {name:'Ancient Power',dmg:'40–90',  fn:()=>rnd(40,90)},
         {name:'Fire Ball',    dmg:'50–80',  fn:()=>rnd(50,80)},
         {name:'Charge',       dmg:'50',     fn:()=>50},
+    ],
+    bulbasaur:[
+        {name:'Vine Whip',    dmg:'1–100',  fn:()=>rnd(1,100)},
+        {name:'Razor Leaf',   dmg:'40–90',  fn:()=>rnd(40,90)},
+        {name:'Solar Beam',   dmg:'50–80',  fn:()=>rnd(50,80)},
+        {name:'Charge',       dmg:'50',     fn:()=>50},
     ]
 };
 function rnd(a,b){return Math.floor(Math.random()*(b-a+1))+a;}
 
 let gameMode='bot', name1='', name2='ENEMY', choice1=null, choice2=null;
-let hp1=150, hp2=150, dodge1=false, dodge2=false, turn=0, maxTurns=10, pvpTurn=1;
+let hp1=150, hp2=150, dodge1=false, dodge2=false, turn=0, maxTurns=10, pvpTurn=1, chargeBlock1=0, chargeBlock2=0;
 
 // ── STARTUP CHECKS ──
 console.log('✅ Pokemon Battle JS loaded OK');
@@ -583,7 +602,8 @@ window.addEventListener('load', ()=>{
     console.log('✅ Page fully loaded');
     const testUrls = {
         'Pikachu':   'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',
-        'Charizard': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png'
+        'Charizard': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png',
+        'Bulbasaur': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png'
     };
     Object.entries(testUrls).forEach(([name, url])=>{
         const img = new Image();
@@ -610,7 +630,7 @@ function startSetup(mode){
     console.log(`🎮 startSetup called: ${mode}`);
     gameMode=mode;
     choice1=null; choice2=null;
-    ['pika-btn','char-btn','pika2-btn','char2-btn'].forEach(id=>{
+    ['pika-btn','char-btn','bulb-btn','pika2-btn','char2-btn','bulb2-btn'].forEach(id=>{
         const el=document.getElementById(id);
         if(el) el.className='poke-btn';
     });
@@ -627,10 +647,12 @@ function selectPoke(player, poke){
         choice1=poke;
         document.getElementById('pika-btn').className='poke-btn'+(poke==='pikachu'?' selected-pika':'');
         document.getElementById('char-btn').className='poke-btn'+(poke==='charizard'?' selected-char':'');
+        document.getElementById('bulb-btn').className='poke-btn'+(poke==='bulbasaur'?' selected-bulb':'');
     } else {
         choice2=poke;
         document.getElementById('pika2-btn').className='poke-btn'+(poke==='pikachu'?' selected-pika':'');
         document.getElementById('char2-btn').className='poke-btn'+(poke==='charizard'?' selected-char':'');
+        document.getElementById('bulb2-btn').className='poke-btn'+(poke==='bulbasaur'?' selected-bulb':'');
     }
 }
 
@@ -647,14 +669,19 @@ function beginBattle(){
         name2=n2.toUpperCase();
     } else {
         name2='ENEMY';
-        choice2=choice1==='pikachu'?'charizard':'pikachu';
+        const allPokes=['pikachu','charizard','bulbasaur'];
+        const others=allPokes.filter(p=>p!==choice1);
+        choice2=others[Math.floor(Math.random()*others.length)];
     }
+    // Track favorite pokemon picks
+    const pickKey='picks_'+choice1;
+    localStorage.setItem(pickKey,(parseInt(localStorage.getItem(pickKey)||'0')+1).toString());
     initBattle();
     showScreen('battle');
 }
 
 function initBattle(){
-    hp1=150; hp2=150; dodge1=false; dodge2=false; turn=0; pvpTurn=1;
+    hp1=150; hp2=150; dodge1=false; dodge2=false; turn=0; pvpTurn=1; chargeBlock1=0; chargeBlock2=0;
     document.getElementById('f1-name').textContent  = name1;
     document.getElementById('f2-name').textContent  = name2;
     document.getElementById('f1-poke').textContent  = choice1.toUpperCase();
@@ -735,6 +762,17 @@ function doAttack(atk, playerNum){
 
     setTimeout(()=>{ defEl.classList.add('shaking'); hurtImg(defImg.id); },80);
     setTimeout(()=>{defEl.classList.remove('shaking');},480);
+
+    // Healing: attacker heals 30 HP unless they used Charge (blocks healing for 2 turns)
+    if(playerNum===1){
+        if(atk.name==='Charge'){ chargeBlock1=2; }
+        if(chargeBlock1>0){ chargeBlock1--; }
+        else { hp1=Math.min(150,hp1+30); setLog(document.getElementById('battle-log').innerHTML+`<br><span class="log-heal">💚 ${name1} recovered 30 HP!</span>`); }
+    } else {
+        if(atk.name==='Charge'){ chargeBlock2=2; }
+        if(chargeBlock2>0){ chargeBlock2--; }
+        else { hp2=Math.min(150,hp2+30); setLog(document.getElementById('battle-log').innerHTML+`<br><span class="log-heal">💚 ${name2} recovered 30 HP!</span>`); }
+    }
     updateHP();
 
     setTimeout(()=>{
@@ -745,8 +783,17 @@ function doAttack(atk, playerNum){
 }
 
 function doDodge(playerNum){
-    if(playerNum===1){ dodge1=true; setLog(`<span class="log-dodge">🛡️ ${name1} braces! Next hit deals only 10% damage.</span>`); }
-    else              { dodge2=true; setLog(`<span class="log-dodge">🛡️ ${name2} braces! Next hit deals only 10% damage.</span>`); }
+    if(playerNum===1){
+        dodge1=true;
+        setLog(`<span class="log-dodge">🛡️ ${name1} braces! Next hit deals only 10% damage.</span>`);
+        if(chargeBlock1>0){ chargeBlock1--; }
+        else { hp1=Math.min(150,hp1+30); setLog(document.getElementById('battle-log').innerHTML+`<br><span class="log-heal">💚 ${name1} recovered 30 HP!</span>`); updateHP(); }
+    } else {
+        dodge2=true;
+        setLog(`<span class="log-dodge">🛡️ ${name2} braces! Next hit deals only 10% damage.</span>`);
+        if(chargeBlock2>0){ chargeBlock2--; }
+        else { hp2=Math.min(150,hp2+30); setLog(document.getElementById('battle-log').innerHTML+`<br><span class="log-heal">💚 ${name2} recovered 30 HP!</span>`); updateHP(); }
+    }
     if(gameMode==='pvp'){ pvpTurn=pvpTurn===1?2:1; renderAttacks(pvpTurn); }
     else { turn++; if(turn>=maxTurns){checkEnd(true);return;} setTimeout(botTurn,600); }
 }
@@ -771,6 +818,11 @@ function botTurn(){
 
         setTimeout(()=>{ document.getElementById('f1').classList.add('shaking'); hurtImg('f1-img'); },80);
         setTimeout(()=>{document.getElementById('f1').classList.remove('shaking');},480);
+
+        // Bot healing
+        if(atk.name==='Charge'){ chargeBlock2=2; }
+        if(chargeBlock2>0){ chargeBlock2--; }
+        else { hp2=Math.min(150,hp2+30); setLog(document.getElementById('battle-log').innerHTML+`<br><span class="log-heal">💚 ${name2} recovered 30 HP!</span>`); }
         updateHP();
 
         setTimeout(()=>{
@@ -792,11 +844,20 @@ function checkEnd(timeout=false){
     return false;
 }
 
+function getFavPokemon(){
+    const pokes=['pikachu','charizard','bulbasaur'];
+    let maxCnt=0, fav=null;
+    pokes.forEach(p=>{ const c=parseInt(localStorage.getItem('picks_'+p)||'0'); if(c>maxCnt){maxCnt=c;fav=p;} });
+    return fav?{name:fav,count:maxCnt}:null;
+}
+
 function showResult(img, title, sub){
     const ri=document.getElementById('result-img');
     if(img){ri.src=img;ri.style.display='block';}else{ri.style.display='none';}
     document.getElementById('result-title').textContent=title;
     document.getElementById('result-sub').textContent=sub;
+    const fav=getFavPokemon();
+    document.getElementById('result-fav').textContent=fav?'Fav Pokemon: '+fav.name.toUpperCase()+' ('+fav.count+' picks)':'';
     document.getElementById('result-overlay').classList.add('show');
 }
 
@@ -834,10 +895,10 @@ def make_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 def get_damage(att):
-    if att in ["electro rope", "fire ring"]:   return random.randint(1, 100)
-    elif att in ["iron tail", "ancient power"]: return random.randint(40, 90)
-    elif att in ["elite thunder", "fire ball"]: return random.randint(50, 80)
-    elif att == "charge":                       return 50
+    if att in ["electro rope", "fire ring", "vine whip"]:      return random.randint(1, 100)
+    elif att in ["iron tail", "ancient power", "razor leaf"]:  return random.randint(40, 90)
+    elif att in ["elite thunder", "fire ball", "solar beam"]:  return random.randint(50, 80)
+    elif att == "charge":                                       return 50
     return 0
 
 # ── DB HELPERS ──
@@ -1326,7 +1387,7 @@ online_friend_html = """
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <style>
-:root{--yellow:#FFD700;--orange:#FF6B00;--dark:#0d0d1a;--card:#16213e;--pika:#F7C948;--char:#FF4500;}
+:root{--yellow:#FFD700;--orange:#FF6B00;--dark:#0d0d1a;--card:#16213e;--pika:#F7C948;--char:#FF4500;--bulb:#78C850;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-height:100vh;overflow-x:hidden;}
 .screen{display:none!important;position:relative;z-index:1;}
@@ -1343,6 +1404,7 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 .poke-btn span{font-family:'Press Start 2P',monospace;font-size:0.55rem;}
 .poke-btn.sel-pika{border-color:var(--pika);background:rgba(247,201,72,0.1);box-shadow:0 0 16px rgba(247,201,72,0.3);}
 .poke-btn.sel-char{border-color:var(--char);background:rgba(255,69,0,0.1);box-shadow:0 0 16px rgba(255,69,0,0.3);}
+.poke-btn.sel-bulb{border-color:var(--bulb);background:rgba(120,200,80,0.1);box-shadow:0 0 16px rgba(120,200,80,0.3);}
 .or-divider{color:#444;font-size:0.8rem;margin:10px 0;text-align:center;}
 .btn-primary{background:linear-gradient(135deg,var(--orange),var(--yellow));color:#000;border:none;padding:15px 44px;border-radius:12px;font-family:'Press Start 2P',monospace;font-size:0.7rem;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;box-shadow:0 4px 18px rgba(255,165,0,0.4);margin-bottom:10px;}
 .btn-primary:hover{transform:translateY(-3px);box-shadow:0 8px 28px rgba(255,165,0,0.6);}
@@ -1430,6 +1492,10 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
             <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png">
             <span>CHARIZARD</span>
         </button>
+        <button class="poke-btn" id="bulb-btn" onclick="selPoke('bulbasaur')">
+            <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png">
+            <span>BULBASAUR</span>
+        </button>
     </div>
 
     <button class="btn-primary" onclick="createRoom()">CREATE ROOM</button>
@@ -1516,15 +1582,17 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 <script>
 const POKE_IMG = {
     pikachu:  'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',
-    charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png'
+    charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png',
+    bulbasaur:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png'
 };
 const ATTACKS = {
     pikachu:  [{name:'Electro Rope',dmg:'1–100'},{name:'Iron Tail',dmg:'40–90'},{name:'Elite Thunder',dmg:'50–80'},{name:'Charge',dmg:'50'}],
-    charizard:[{name:'Fire Ring',dmg:'1–100'},{name:'Ancient Power',dmg:'40–90'},{name:'Fire Ball',dmg:'50–80'},{name:'Charge',dmg:'50'}]
+    charizard:[{name:'Fire Ring',dmg:'1–100'},{name:'Ancient Power',dmg:'40–90'},{name:'Fire Ball',dmg:'50–80'},{name:'Charge',dmg:'50'}],
+    bulbasaur:[{name:'Vine Whip',dmg:'1–100'},{name:'Razor Leaf',dmg:'40–90'},{name:'Solar Beam',dmg:'50–80'},{name:'Charge',dmg:'50'}]
 };
 
 const socket = io();
-let myPokemon='', myUsername='', roomCode='', myTurn=false, myIdx=0;
+let myPokemon='', myUsername='', oppPokemon='', roomCode='', myTurn=false, myIdx=0;
 let timerInterval=null, pendingRematchCode='';
 
 function showScreen(id){
@@ -1536,6 +1604,7 @@ function selPoke(p){
     myPokemon=p;
     document.getElementById('pika-btn').className='poke-btn'+(p==='pikachu'?' sel-pika':'');
     document.getElementById('char-btn').className='poke-btn'+(p==='charizard'?' sel-char':'');
+    document.getElementById('bulb-btn').className='poke-btn'+(p==='bulbasaur'?' sel-bulb':'');
 }
 
 function validate(){
@@ -1574,7 +1643,7 @@ socket.on('game_start', d=>{
     document.getElementById('f-opp-poke').textContent=d.opp_pokemon.toUpperCase();
     document.getElementById('f-you-img').src=POKE_IMG[d.your_pokemon];
     document.getElementById('f-opp-img').src=POKE_IMG[d.opp_pokemon];
-    myPokemon=d.your_pokemon;
+    myPokemon=d.your_pokemon; oppPokemon=d.opp_pokemon;
     setBar('f-you-bar','f-you-hp',d.your_hp);
     setBar('f-opp-bar','f-opp-hp',d.opp_hp);
     renderAttacks(myTurn);
@@ -1604,7 +1673,7 @@ socket.on('game_over', d=>{
     setBar('f-opp-bar','f-opp-hp', d.opp_hp);
     setLog(d.log);
     const won = d.winner===myUsername;
-    document.getElementById('res-img').src=won?POKE_IMG[myPokemon]:POKE_IMG[myPokemon==='pikachu'?'charizard':'pikachu'];
+    document.getElementById('res-img').src=POKE_IMG[won?myPokemon:oppPokemon];
     document.getElementById('res-title').textContent=won?'YOU WIN! 🏆':'YOU LOST 💀';
     document.getElementById('res-sub').textContent=won?'GG! Victory recorded.':'Better luck next time!';
     document.getElementById('rematch-btn').disabled=false;
@@ -1755,7 +1824,7 @@ online_random_html = """
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <style>
-:root{--yellow:#FFD700;--orange:#FF6B00;--dark:#0d0d1a;--card:#16213e;--pika:#F7C948;--char:#FF4500;}
+:root{--yellow:#FFD700;--orange:#FF6B00;--dark:#0d0d1a;--card:#16213e;--pika:#F7C948;--char:#FF4500;--bulb:#78C850;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-height:100vh;overflow-x:hidden;}
 .screen{display:none!important;position:relative;z-index:1;}
@@ -1772,6 +1841,7 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 .poke-btn span{font-family:'Press Start 2P',monospace;font-size:0.55rem;}
 .poke-btn.sel-pika{border-color:var(--pika);background:rgba(247,201,72,0.1);box-shadow:0 0 16px rgba(247,201,72,0.3);}
 .poke-btn.sel-char{border-color:var(--char);background:rgba(255,69,0,0.1);box-shadow:0 0 16px rgba(255,69,0,0.3);}
+.poke-btn.sel-bulb{border-color:var(--bulb);background:rgba(120,200,80,0.1);box-shadow:0 0 16px rgba(120,200,80,0.3);}
 .btn-primary{background:linear-gradient(135deg,var(--orange),var(--yellow));color:#000;border:none;padding:15px 44px;border-radius:12px;font-family:'Press Start 2P',monospace;font-size:0.7rem;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;box-shadow:0 4px 18px rgba(255,165,0,0.4);margin-bottom:10px;}
 .btn-primary:hover{transform:translateY(-3px);box-shadow:0 8px 28px rgba(255,165,0,0.6);}
 .btn-secondary{background:transparent;color:#555;border:1px solid #2a3050;padding:11px 22px;border-radius:10px;cursor:pointer;font-family:'Nunito',sans-serif;font-size:0.82rem;transition:all 0.2s;margin-top:6px;}
@@ -1849,6 +1919,10 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
             <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png">
             <span>CHARIZARD</span>
         </button>
+        <button class="poke-btn" id="bulb-btn" onclick="selPoke('bulbasaur')">
+            <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png">
+            <span>BULBASAUR</span>
+        </button>
     </div>
     <button class="btn-primary" onclick="findMatch()">FIND MATCH 🔍</button>
     <br>
@@ -1925,13 +1999,13 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 </div>
 
 <script>
-const POKE_IMG={pikachu:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png'};
-const ATTACKS={pikachu:[{name:'Electro Rope',dmg:'1–100'},{name:'Iron Tail',dmg:'40–90'},{name:'Elite Thunder',dmg:'50–80'},{name:'Charge',dmg:'50'}],charizard:[{name:'Fire Ring',dmg:'1–100'},{name:'Ancient Power',dmg:'40–90'},{name:'Fire Ball',dmg:'50–80'},{name:'Charge',dmg:'50'}]};
+const POKE_IMG={pikachu:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png',bulbasaur:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/1.png'};
+const ATTACKS={pikachu:[{name:'Electro Rope',dmg:'1–100'},{name:'Iron Tail',dmg:'40–90'},{name:'Elite Thunder',dmg:'50–80'},{name:'Charge',dmg:'50'}],charizard:[{name:'Fire Ring',dmg:'1–100'},{name:'Ancient Power',dmg:'40–90'},{name:'Fire Ball',dmg:'50–80'},{name:'Charge',dmg:'50'}],bulbasaur:[{name:'Vine Whip',dmg:'1–100'},{name:'Razor Leaf',dmg:'40–90'},{name:'Solar Beam',dmg:'50–80'},{name:'Charge',dmg:'50'}]};
 const socket=io();
-let myPokemon='',myUsername='',roomCode='',myTurn=false,timerInterval=null,pendingRematchCode='';
+let myPokemon='',myUsername='',oppPokemon='',roomCode='',myTurn=false,timerInterval=null,pendingRematchCode='';
 
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
-function selPoke(p){myPokemon=p;document.getElementById('pika-btn').className='poke-btn'+(p==='pikachu'?' sel-pika':'');document.getElementById('char-btn').className='poke-btn'+(p==='charizard'?' sel-char':'');}
+function selPoke(p){myPokemon=p;document.getElementById('pika-btn').className='poke-btn'+(p==='pikachu'?' sel-pika':'');document.getElementById('char-btn').className='poke-btn'+(p==='charizard'?' sel-char':'');document.getElementById('bulb-btn').className='poke-btn'+(p==='bulbasaur'?' sel-bulb':'');}
 
 function findMatch(){
     const u=document.getElementById('username').value.trim();
@@ -1952,7 +2026,7 @@ socket.on('error',d=>alert(d.msg));
 socket.on('cancelled',()=>window.location.href='/online');
 
 socket.on('game_start',d=>{
-    roomCode=d.code; myTurn=d.your_turn; myPokemon=d.your_pokemon;
+    roomCode=d.code; myTurn=d.your_turn; myPokemon=d.your_pokemon; oppPokemon=d.opp_pokemon;
     myUsername=document.getElementById('username').value.trim()||d.you;
     document.getElementById('f-you-name').textContent=d.you;
     document.getElementById('f-opp-name').textContent=d.opponent;
@@ -1988,7 +2062,7 @@ socket.on('game_over',d=>{
     setBar('f-opp-bar','f-opp-hp', d.opp_hp);
     setLog(d.log);
     const won=d.winner===myUsername;
-    document.getElementById('res-img').src=won?POKE_IMG[myPokemon]:POKE_IMG[myPokemon==='pikachu'?'charizard':'pikachu'];
+    document.getElementById('res-img').src=POKE_IMG[won?myPokemon:oppPokemon];
     document.getElementById('res-title').textContent=won?'YOU WIN! 🏆':'YOU LOST 💀';
     document.getElementById('res-sub').textContent=won?'GG! Victory recorded.':'Better luck next time!';
     document.getElementById('rematch-btn').disabled=false;
