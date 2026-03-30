@@ -18,42 +18,123 @@ html = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Registro</title>
+<title>⚡ Pokémon Battle — Register</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-body{
-    font-family:Arial;
-    text-align:center;
-    background:#000080;
+:root { --yellow:#FFD700; --orange:#FF6B00; --dark:#0d0d1a; --card:#16213e; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body {
+    font-family:'Nunito',sans-serif;
+    background:var(--dark);
     color:white;
+    min-height:100vh;
+    text-align:center;
+    padding:100px 20px 60px;
 }
-input{ padding:10px; }
-button{ padding:10px; }
-table{ margin:auto; border-collapse:collapse; }
-td,th{ border:1px solid black; padding:10px; }
+body::before {
+    content:'';
+    position:fixed; inset:0;
+    background-image:
+        radial-gradient(1px 1px at 15% 25%, rgba(255,255,255,0.3) 0%, transparent 100%),
+        radial-gradient(1px 1px at 40% 70%, rgba(255,255,255,0.2) 0%, transparent 100%),
+        radial-gradient(1px 1px at 70% 15%, rgba(255,255,255,0.3) 0%, transparent 100%),
+        radial-gradient(1px 1px at 85% 60%, rgba(255,255,255,0.2) 0%, transparent 100%);
+    pointer-events:none; z-index:0;
+}
+h1 {
+    position:relative; z-index:1;
+    font-family:'Press Start 2P',monospace;
+    font-size:clamp(0.8rem,2.2vw,1.3rem);
+    color:var(--yellow);
+    text-shadow:0 0 24px rgba(255,215,0,0.5), 3px 3px 0 #b8860b;
+    margin-bottom:10px;
+    animation:flicker 4s infinite;
+}
+@keyframes flicker { 0%,94%,100%{opacity:1;} 97%{opacity:0.6;} }
+.subtitle {
+    position:relative; z-index:1;
+    color:#666; font-size:0.9rem;
+    margin-bottom:28px; letter-spacing:1px;
+}
+.register-form {
+    position:relative; z-index:1;
+    display:flex; gap:10px;
+    justify-content:center; flex-wrap:wrap;
+    margin-bottom:12px;
+}
+.register-form input {
+    background:var(--card); border:2px solid #2a3050;
+    color:white; padding:13px 18px; border-radius:10px;
+    font-size:1rem; font-family:'Nunito',sans-serif;
+    width:280px; outline:none; transition:border-color 0.2s;
+}
+.register-form input:focus { border-color:var(--yellow); }
+.register-form button {
+    background:linear-gradient(135deg,var(--orange),var(--yellow));
+    color:#000; border:none; padding:13px 28px;
+    border-radius:10px; font-family:'Press Start 2P',monospace;
+    font-size:0.62rem; cursor:pointer;
+    transition:transform 0.2s, box-shadow 0.2s;
+    box-shadow:0 4px 16px rgba(255,165,0,0.4);
+}
+.register-form button:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(255,165,0,0.6); }
+.msg { position:relative; z-index:1; font-size:0.85rem; color:#69f0ae; margin-bottom:20px; min-height:1.2em; }
 .game-banner {
-    margin: 30px auto;
-    padding: 20px 30px;
-    background: linear-gradient(135deg, #ff6b00, #ffd700);
-    border-radius: 16px;
-    width: fit-content;
-    box-shadow: 0 0 20px rgba(255,165,0,0.6);
-    animation: pulse 2s infinite;
+    position:relative; z-index:1;
+    margin:24px auto 34px;
+    padding:22px 32px;
+    background:linear-gradient(135deg,rgba(255,107,0,0.15),rgba(255,215,0,0.08));
+    border:2px solid rgba(255,215,0,0.25);
+    border-radius:18px; width:fit-content;
+    animation:glow 2.5s infinite;
 }
-.game-banner h2 { margin:0 0 10px 0; color:#000; font-size:1.1rem; font-family:'Press Start 2P', monospace; }
+@keyframes glow {
+    0%,100% { box-shadow:0 0 20px rgba(255,165,0,0.2); }
+    50%      { box-shadow:0 0 40px rgba(255,165,0,0.5); }
+}
+.game-banner h2 {
+    margin:0 0 14px 0; color:var(--yellow);
+    font-size:0.72rem; font-family:'Press Start 2P',monospace;
+}
 .game-btn {
-    display:inline-block; padding:14px 32px;
-    background:#000; color:#ffd700;
-    font-size:0.85rem; font-weight:bold;
-    border-radius:8px; text-decoration:none;
-    letter-spacing:1px; transition:transform 0.2s;
-    font-family:'Press Start 2P', monospace;
+    display:inline-block; padding:13px 26px;
+    background:linear-gradient(135deg,var(--orange),var(--yellow));
+    color:#000; font-size:0.68rem; font-weight:bold;
+    border-radius:10px; text-decoration:none;
+    font-family:'Press Start 2P',monospace;
+    transition:transform 0.2s, box-shadow 0.2s;
+    box-shadow:0 4px 14px rgba(255,165,0,0.4);
 }
-.game-btn:hover { transform:scale(1.07); }
-@keyframes pulse {
-    0%,100% { box-shadow:0 0 20px rgba(255,165,0,0.6); }
-    50%      { box-shadow:0 0 40px rgba(255,165,0,1); }
+.game-btn:hover { transform:scale(1.07) translateY(-2px); box-shadow:0 8px 24px rgba(255,165,0,0.6); }
+.email-section { position:relative; z-index:1; max-width:560px; margin:0 auto; }
+.section-title {
+    font-family:'Press Start 2P',monospace; font-size:0.55rem;
+    color:#555; letter-spacing:2px; text-transform:uppercase; margin-bottom:14px;
 }
+.search-box {
+    background:var(--card); border:2px solid #2a3050;
+    color:white; padding:11px 16px; border-radius:10px;
+    font-size:0.9rem; font-family:'Nunito',sans-serif;
+    width:100%; outline:none; transition:border-color 0.2s; margin-bottom:12px;
+}
+.search-box:focus { border-color:var(--yellow); }
+.email-table {
+    width:100%; border-collapse:collapse;
+    background:var(--card); border-radius:14px; overflow:hidden;
+}
+.email-table th {
+    background:rgba(255,215,0,0.08); color:var(--yellow);
+    font-family:'Press Start 2P',monospace; font-size:0.52rem;
+    padding:14px 18px; text-align:left; letter-spacing:1px;
+    border-bottom:2px solid #2a3050;
+}
+.email-table td {
+    padding:12px 18px; border-bottom:1px solid #1e2a4a;
+    color:#aaa; font-size:0.9rem; text-align:left;
+}
+.email-table tr:last-child td { border-bottom:none; }
+.email-table tr:hover td { background:rgba(255,215,0,0.04); color:white; }
+.no-results { color:#555; font-size:0.85rem; padding:20px; }
 </style>
 </head>
 <body>
@@ -67,7 +148,7 @@ td,th{ border:1px solid black; padding:10px; }
     max-width:680px; width:90%;
     box-shadow:0 16px 60px rgba(0,0,0,0.7);
     display:flex; flex-direction:column; align-items:center; gap:24px;
-    font-family:Arial,sans-serif; text-align:center;
+    font-family:'Nunito',sans-serif; text-align:center;
 ">
     <div style="width:100%;">
         <div style="font-size:1.4rem; color:#FFD700; font-weight:bold; margin-bottom:14px;">🚨 Panic Button</div>
@@ -76,8 +157,7 @@ td,th{ border:1px solid black; padding:10px; }
     <button onclick="document.getElementById('how-to-popup').style.display='none'" style="
         background:#ff1a1a; color:white; border:none;
         padding:14px 36px; border-radius:10px;
-        font-size:1rem; font-weight:bold;
-        cursor:pointer;
+        font-size:1rem; font-weight:bold; cursor:pointer;
     ">Got it ✓</button>
 </div>
 
@@ -92,45 +172,49 @@ td,th{ border:1px solid black; padding:10px; }
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
 
-<style>
-@keyframes bounce { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-8px);} }
-</style>
-
-<div style="margin-top:60px;">
 <h1>⚡ Want to play with other people?</h1>
-<p style="font-size:1rem;margin-bottom:16px;">Enter your email so other players can challenge you!</p>
-<form method="POST">
-<input type="email" name="email" placeholder="Tu correo" required>
-<button type="submit">Registrar</button>
+<p class="subtitle">Enter your email so other players can challenge you!</p>
+
+<form method="POST" class="register-form">
+    <input type="email" name="email" placeholder="your@email.com" required>
+    <button type="submit">REGISTER</button>
 </form>
+<p class="msg">{{mensaje}}</p>
 
 <div class="game-banner">
-    <h2>⚡ Pokémon Battle</h2>
+    <h2>⚡ POKÉMON BATTLE</h2>
     <a class="game-btn" href="/game">🕹️ Local Game</a>
     &nbsp;&nbsp;
     <a class="game-btn" href="/online">🌍 Play Online</a>
 </div>
 
-<h2>Correos registrados</h2>
-<table>
-<tr><th>Email</th></tr>
-{% for email in emails %}
-<tr><td>{{ email }}</td></tr>
-{% endfor %}
-</table>
-<p>{{mensaje}}</p>
+<div class="email-section">
+    <p class="section-title">Registered Players</p>
+    <input type="text" class="search-box" id="email-search" placeholder="🔍  Search emails..." oninput="filterEmails()">
+    <table class="email-table" id="email-table">
+        <thead><tr><th>EMAIL</th></tr></thead>
+        <tbody id="email-body">
+        {% for email in emails %}
+        <tr><td>{{ email }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p class="no-results" id="no-results" style="display:none;">No emails match your search.</p>
 </div>
 
-<!-- PANIC BUTTON -->
-<a href="/article" id="panic-btn" style="
-    position:fixed; top:16px; left:16px; z-index:99999;
-    background:#ff1a1a; color:white;
-    font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.95rem; padding:17px 22px;
-    border-radius:10px; text-decoration:none;
-    box-shadow:0 4px 20px rgba(255,26,26,0.6);
-    line-height:1.5; text-align:center;
-">🚨 TEACHER<br>COMING</a>
+<script>
+function filterEmails() {
+    const q = document.getElementById('email-search').value.toLowerCase();
+    const rows = document.querySelectorAll('#email-body tr');
+    let visible = 0;
+    rows.forEach(row => {
+        const match = row.textContent.toLowerCase().includes(q);
+        row.style.display = match ? '' : 'none';
+        if (match) visible++;
+    });
+    document.getElementById('no-results').style.display = visible === 0 ? 'block' : 'none';
+}
+</script>
 </body>
 </html>
 """
@@ -271,9 +355,10 @@ body::before {
 
 .fighter-name   { font-family:'Press Start 2P',monospace; font-size:0.5rem; color:#888; margin-bottom:5px; text-transform:uppercase; }
 .fighter-pokemon{ font-family:'Press Start 2P',monospace; font-size:0.6rem; color:var(--yellow); margin-bottom:10px; }
-.fighter img    { width:86px; height:86px; object-fit:contain; filter:drop-shadow(0 0 10px rgba(255,215,0,0.3)); transition:transform 0.3s; }
+.fighter img    { width:86px; height:86px; object-fit:contain; filter:drop-shadow(0 0 10px rgba(255,215,0,0.3)); transition:transform 0.3s, filter 0.15s; }
 .fighter img.attacking { animation:atk-anim 0.5s; }
 @keyframes atk-anim { 0%,100%{transform:scale(1);} 50%{transform:scale(1.22) rotate(-5deg);} }
+.fighter img.hurt { filter:sepia(1) saturate(6) hue-rotate(310deg) brightness(0.6) drop-shadow(0 0 14px rgba(255,0,0,0.9)); transform:scale(0.92); }
 
 .hp-bar-wrap { margin-top:10px; }
 .hp-label    { font-size:0.72rem; color:#888; margin-bottom:4px; display:flex; justify-content:space-between; }
@@ -603,10 +688,17 @@ function renderAttacks(playerNum){
 
 function disableAll(){ document.querySelectorAll('.atk-btn').forEach(b=>b.disabled=true); }
 
+function hurtImg(imgId){
+    const img=document.getElementById(imgId);
+    img.classList.add('hurt');
+    setTimeout(()=>img.classList.remove('hurt'),700);
+}
+
 function doAttack(atk, playerNum){
     disableAll();
     let dmg=atk.fn();
     const atkImg=document.getElementById(playerNum===1?'f1-img':'f2-img');
+    const defImg=document.getElementById(playerNum===1?'f2-img':'f1-img');
     const defEl =document.getElementById(playerNum===1?'f2':'f1');
 
     atkImg.classList.add('attacking');
@@ -622,7 +714,7 @@ function doAttack(atk, playerNum){
         setLog(`<span class="log-dmg">🔥 ${name2} used ${atk.name} — ${dmg} damage!</span>`);
     }
 
-    setTimeout(()=>{defEl.classList.add('shaking');},80);
+    setTimeout(()=>{ defEl.classList.add('shaking'); hurtImg(defImg.id); },80);
     setTimeout(()=>{defEl.classList.remove('shaking');},480);
     updateHP();
 
@@ -658,7 +750,7 @@ function botTurn(){
         hp1-=dmg;
         setLog(`<span class="log-bot">🤖 Enemy used ${atk.name} — <span class="log-dmg">${dmg} damage!</span></span>`);
 
-        setTimeout(()=>{document.getElementById('f1').classList.add('shaking');},80);
+        setTimeout(()=>{ document.getElementById('f1').classList.add('shaking'); hurtImg('f1-img'); },80);
         setTimeout(()=>{document.getElementById('f1').classList.remove('shaking');},480);
         updateHP();
 
@@ -1122,9 +1214,10 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 @keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-7px);}75%{transform:translateX(7px);}}
 .fighter-name{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:#888;margin-bottom:4px;}
 .fighter-poke{font-family:'Press Start 2P',monospace;font-size:0.58rem;color:var(--yellow);margin-bottom:8px;}
-.fighter img{width:80px;height:80px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(255,215,0,0.3));}
+.fighter img{width:80px;height:80px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(255,215,0,0.3));transition:filter 0.15s,transform 0.15s;}
 .fighter img.atk{animation:atk-anim 0.5s;}
 @keyframes atk-anim{0%,100%{transform:scale(1);}50%{transform:scale(1.2) rotate(-5deg);}}
+.fighter img.hurt{filter:sepia(1) saturate(6) hue-rotate(310deg) brightness(0.6) drop-shadow(0 0 14px rgba(255,0,0,0.9));transform:scale(0.92);}
 .hp-wrap{margin-top:8px;}
 .hp-label{font-size:0.7rem;color:#888;margin-bottom:3px;display:flex;justify-content:space-between;}
 .hp-label span{color:white;font-weight:700;}
@@ -1310,9 +1403,11 @@ socket.on('move_result', d=>{
     myTurn=d.your_turn;
     setLog(d.log);
     renderAttacks(myTurn);
+    // d.your_turn=true means opponent just attacked → my Pokemon was hit
     const defEl=document.getElementById(myTurn?'f-opp':'f-you');
     defEl.classList.add('shaking');
     setTimeout(()=>defEl.classList.remove('shaking'),400);
+    hurtImg(myTurn?'f-opp-img':'f-you-img');
 });
 
 socket.on('game_over', d=>{
@@ -1330,6 +1425,13 @@ socket.on('opponent_left', d=>{
     alert(d.msg);
     window.location.href='/online/friend';
 });
+
+function hurtImg(imgId){
+    const img=document.getElementById(imgId);
+    if(!img) return;
+    img.classList.add('hurt');
+    setTimeout(()=>img.classList.remove('hurt'),700);
+}
 
 function setBar(barId,numId,hp){
     const pct=Math.max(0,(hp/150)*100);
@@ -1423,7 +1525,8 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 @keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-7px);}75%{transform:translateX(7px);}}
 .fighter-name{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:#888;margin-bottom:4px;}
 .fighter-poke{font-family:'Press Start 2P',monospace;font-size:0.58rem;color:var(--yellow);margin-bottom:8px;}
-.fighter img{width:80px;height:80px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(255,215,0,0.3));}
+.fighter img{width:80px;height:80px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(255,215,0,0.3));transition:filter 0.15s,transform 0.15s;}
+.fighter img.hurt{filter:sepia(1) saturate(6) hue-rotate(310deg) brightness(0.6) drop-shadow(0 0 14px rgba(255,0,0,0.9));transform:scale(0.92);}
 .hp-wrap{margin-top:8px;}
 .hp-label{font-size:0.7rem;color:#888;margin-bottom:3px;display:flex;justify-content:space-between;}
 .hp-label span{color:white;font-weight:700;}
@@ -1577,6 +1680,7 @@ socket.on('move_result',d=>{
     const defEl=document.getElementById(myTurn?'f-opp':'f-you');
     defEl.classList.add('shaking');
     setTimeout(()=>defEl.classList.remove('shaking'),400);
+    hurtImg(myTurn?'f-opp-img':'f-you-img');
 });
 
 socket.on('game_over',d=>{
@@ -1592,6 +1696,7 @@ socket.on('game_over',d=>{
 
 socket.on('opponent_left',d=>{alert(d.msg);window.location.href='/online/random';});
 
+function hurtImg(imgId){const img=document.getElementById(imgId);if(!img)return;img.classList.add('hurt');setTimeout(()=>img.classList.remove('hurt'),700);}
 function setBar(barId,numId,hp){const pct=Math.max(0,(hp/150)*100);const bar=document.getElementById(barId);if(!bar)return;bar.style.width=pct+'%';bar.className='hp-fill '+(pct>50?'high':pct>20?'mid':'low');document.getElementById(numId).textContent=Math.max(0,Math.round(hp));}
 function setLog(msg){document.getElementById('battle-log').innerHTML=msg;}
 
