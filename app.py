@@ -60,35 +60,35 @@ td,th{ border:1px solid black; padding:10px; }
 
 <!-- COOKIE-STYLE POPUP -->
 <div id="how-to-popup" style="
-    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
     z-index:99998; background:#1a1a2e;
-    border:1px solid rgba(255,215,0,0.3);
-    border-radius:14px; padding:18px 24px;
-    max-width:420px; width:90%;
-    box-shadow:0 8px 32px rgba(0,0,0,0.5);
-    display:flex; align-items:center; gap:16px;
-    font-family:Arial,sans-serif;
+    border:2px solid rgba(255,215,0,0.5);
+    border-radius:20px; padding:40px 48px;
+    max-width:680px; width:90%;
+    box-shadow:0 16px 60px rgba(0,0,0,0.7);
+    display:flex; flex-direction:column; align-items:center; gap:24px;
+    font-family:Arial,sans-serif; text-align:center;
 ">
-    <div style="flex:1;">
-        <div style="font-size:0.82rem; color:#FFD700; font-weight:bold; margin-bottom:6px;">🚨 Panic Button</div>
-        <div style="font-size:0.75rem; color:#aaa; line-height:1.5;">If the teacher comes, press the red button in the top-left corner — it'll switch to a boring study article instantly.</div>
+    <div style="width:100%;">
+        <div style="font-size:1.4rem; color:#FFD700; font-weight:bold; margin-bottom:14px;">🚨 Panic Button</div>
+        <div style="font-size:1.05rem; color:#ccc; line-height:1.7;">If the teacher comes, press the red button in the top-left corner — it'll switch to a boring study article instantly.</div>
     </div>
     <button onclick="document.getElementById('how-to-popup').style.display='none'" style="
-        background:#c0392b; color:white; border:none;
-        padding:10px 16px; border-radius:8px;
-        font-size:0.75rem; font-weight:bold;
-        cursor:pointer; white-space:nowrap; flex-shrink:0;
+        background:#ff1a1a; color:white; border:none;
+        padding:14px 36px; border-radius:10px;
+        font-size:1rem; font-weight:bold;
+        cursor:pointer;
     ">Got it ✓</button>
 </div>
 
 <!-- PANIC BUTTON — TOP LEFT -->
 <a href="/article" style="
     position:fixed; top:16px; left:16px; z-index:99999;
-    background:#c0392b; color:white;
+    background:#ff1a1a; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.8rem; padding:14px 18px;
+    font-size:0.95rem; padding:17px 22px;
     border-radius:10px; text-decoration:none;
-    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
 
@@ -124,11 +124,11 @@ td,th{ border:1px solid black; padding:10px; }
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
     position:fixed; top:16px; left:16px; z-index:99999;
-    background:#c0392b; color:white;
+    background:#ff1a1a; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.8rem; padding:14px 18px;
+    font-size:0.95rem; padding:17px 22px;
     border-radius:10px; text-decoration:none;
-    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
 </body>
@@ -699,11 +699,11 @@ function resetGame(){
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
     position:fixed; top:16px; left:16px; z-index:99999;
-    background:#c0392b; color:white;
+    background:#ff1a1a; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.8rem; padding:14px 18px;
+    font-size:0.95rem; padding:17px 22px;
     border-radius:10px; text-decoration:none;
-    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
 </body>
@@ -1069,11 +1069,11 @@ document.getElementById('stats-input').addEventListener('keydown', e=>{ if(e.key
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
     position:fixed; top:16px; left:16px; z-index:99999;
-    background:#c0392b; color:white;
+    background:#ff1a1a; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.8rem; padding:14px 18px;
+    font-size:0.95rem; padding:17px 22px;
     border-radius:10px; text-decoration:none;
-    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
 </body>
@@ -1373,11 +1373,11 @@ function sendAttack(move){
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
     position:fixed; top:16px; left:16px; z-index:99999;
-    background:#c0392b; color:white;
+    background:#ff1a1a; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.8rem; padding:14px 18px;
+    font-size:0.95rem; padding:17px 22px;
     border-radius:10px; text-decoration:none;
-    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
 </body>
@@ -1621,11 +1621,11 @@ function sendAttack(move){document.querySelectorAll('.atk-btn').forEach(b=>b.dis
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
     position:fixed; top:16px; left:16px; z-index:99999;
-    background:#c0392b; color:white;
+    background:#ff1a1a; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.8rem; padding:14px 18px;
+    font-size:0.95rem; padding:17px 22px;
     border-radius:10px; text-decoration:none;
-    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
 </body>
