@@ -57,6 +57,38 @@ td,th{ border:1px solid black; padding:10px; }
 </style>
 </head>
 <body>
+
+<!-- NOTIFICATION BANNER -->
+<div id="notif-banner" style="
+    position:fixed; top:0; left:0; right:0; z-index:999;
+    background:linear-gradient(90deg,#1a1a2e,#0f3460);
+    color:#FFD700; font-family:'Press Start 2P',monospace;
+    font-size:0.55rem; padding:10px 20px;
+    display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 2px 20px rgba(0,0,0,0.5);
+">
+    <span>📢 NEW: Read our latest research article — click the button in the corner!</span>
+    <button onclick="document.getElementById('notif-banner').style.display='none'"
+        style="background:none;border:none;color:#FFD700;cursor:pointer;font-size:1rem;padding:0 8px;">✕</button>
+</div>
+
+<!-- BOUNCING CORNER BUTTON -->
+<a href="/article" style="
+    position:fixed; bottom:24px; right:24px; z-index:999;
+    background:linear-gradient(135deg,#FF6B00,#FFD700);
+    color:#000; font-family:'Press Start 2P',monospace;
+    font-size:0.5rem; padding:12px 16px;
+    border-radius:12px; text-decoration:none;
+    box-shadow:0 4px 20px rgba(255,165,0,0.5);
+    animation:bounce 2s infinite;
+    line-height:1.6; text-align:center;
+">⚠️ CLICK IF<br>THE MISS<br>COMES</a>
+
+<style>
+@keyframes bounce { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-8px);} }
+</style>
+
+<div style="margin-top:60px;">
 <h1>⚡ Want to play with other people?</h1>
 <p style="font-size:1rem;margin-bottom:16px;">Enter your email so other players can challenge you!</p>
 <form method="POST">
@@ -79,6 +111,19 @@ td,th{ border:1px solid black; padding:10px; }
 {% endfor %}
 </table>
 <p>{{mensaje}}</p>
+</div>
+
+<!-- PANIC BUTTON -->
+<a href="/article" id="panic-btn" style="
+    position:fixed; bottom:20px; right:20px; z-index:99999;
+    background:#c0392b; color:white;
+    font-family:Arial,sans-serif; font-weight:bold;
+    font-size:0.72rem; padding:10px 14px;
+    border-radius:8px; text-decoration:none;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    line-height:1.5; text-align:center;
+    opacity:0.9;
+">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
 """
@@ -643,6 +688,18 @@ function resetGame(){
 }
 
 </script>
+
+<!-- PANIC BUTTON -->
+<a href="/article" id="panic-btn" style="
+    position:fixed; bottom:20px; right:20px; z-index:99999;
+    background:#c0392b; color:white;
+    font-family:Arial,sans-serif; font-weight:bold;
+    font-size:0.72rem; padding:10px 14px;
+    border-radius:8px; text-decoration:none;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    line-height:1.5; text-align:center;
+    opacity:0.9;
+">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
 """
@@ -733,6 +790,10 @@ def index():
 @app.route("/game")
 def game():
     return render_template_string(game_html)
+
+@app.route("/article")
+def article():
+    return render_template_string(article_html)
 
 @app.route("/online")
 def online():
@@ -998,6 +1059,18 @@ async function checkStats(){
 }
 document.getElementById('stats-input').addEventListener('keydown', e=>{ if(e.key==='Enter') checkStats(); });
 </script>
+
+<!-- PANIC BUTTON -->
+<a href="/article" id="panic-btn" style="
+    position:fixed; bottom:20px; right:20px; z-index:99999;
+    background:#c0392b; color:white;
+    font-family:Arial,sans-serif; font-weight:bold;
+    font-size:0.72rem; padding:10px 14px;
+    border-radius:8px; text-decoration:none;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    line-height:1.5; text-align:center;
+    opacity:0.9;
+">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
 """
@@ -1291,6 +1364,18 @@ function sendAttack(move){
     socket.emit('attack',{code:roomCode, move:move});
 }
 </script>
+
+<!-- PANIC BUTTON -->
+<a href="/article" id="panic-btn" style="
+    position:fixed; bottom:20px; right:20px; z-index:99999;
+    background:#c0392b; color:white;
+    font-family:Arial,sans-serif; font-weight:bold;
+    font-size:0.72rem; padding:10px 14px;
+    border-radius:8px; text-decoration:none;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    line-height:1.5; text-align:center;
+    opacity:0.9;
+">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
 """
@@ -1528,9 +1613,109 @@ function renderAttacks(myTurn){
 
 function sendAttack(move){document.querySelectorAll('.atk-btn').forEach(b=>b.disabled=true);socket.emit('attack',{code:roomCode,move:move});}
 </script>
+
+<!-- PANIC BUTTON -->
+<a href="/article" id="panic-btn" style="
+    position:fixed; bottom:20px; right:20px; z-index:99999;
+    background:#c0392b; color:white;
+    font-family:Arial,sans-serif; font-weight:bold;
+    font-size:0.72rem; padding:10px 14px;
+    border-radius:8px; text-decoration:none;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    line-height:1.5; text-align:center;
+    opacity:0.9;
+">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
 """
+
+article_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cognitive Load and Reading Comprehension — Educational Psychology Review</title>
+<link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Source Sans 3',sans-serif;background:#f9f7f2;color:#1a1a1a;line-height:1.8;}
+.journal-header{background:#2c3e50;color:white;padding:10px 0;text-align:center;font-size:0.72rem;letter-spacing:3px;text-transform:uppercase;}
+.article-wrap{max-width:740px;margin:0 auto;padding:40px 24px 80px;}
+.article-label{font-size:0.72rem;color:#888;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;}
+h1{font-family:'Merriweather',serif;font-size:clamp(1.3rem,2.5vw,1.9rem);line-height:1.3;margin-bottom:16px;color:#111;}
+.byline{font-size:0.85rem;color:#888;margin-bottom:6px;}
+.date{font-size:0.8rem;color:#aaa;margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid #ddd;}
+.abstract{background:#f0ede6;border-left:4px solid #2c3e50;padding:20px 24px;margin-bottom:32px;border-radius:0 8px 8px 0;}
+.abstract strong{display:block;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;color:#555;}
+.abstract p{font-size:0.92rem;color:#333;font-style:italic;}
+h2{font-family:'Merriweather',serif;font-size:1.1rem;margin:32px 0 12px;color:#111;}
+p{margin-bottom:18px;font-size:0.97rem;color:#222;}
+blockquote{border-left:3px solid #ccc;padding-left:20px;margin:24px 0;color:#555;font-style:italic;}
+table{width:100%;border-collapse:collapse;margin:24px 0;font-size:0.88rem;}
+th{background:#2c3e50;color:white;padding:10px 14px;text-align:left;}
+td{padding:9px 14px;border-bottom:1px solid #ddd;}
+tr:nth-child(even) td{background:#f5f3ee;}
+.figure-caption{font-size:0.78rem;color:#888;font-style:italic;margin-top:6px;}
+.references p{margin-bottom:6px;font-size:0.82rem;color:#555;line-height:1.9;}
+</style>
+</head>
+<body>
+
+<div class="journal-header">Educational Psychology Review &nbsp;·&nbsp; Vol. 38, Issue 2 &nbsp;·&nbsp; 2026</div>
+
+<div class="article-wrap">
+
+    <p class="article-label">Research Article &nbsp;·&nbsp; Peer Reviewed</p>
+    <h1>Cognitive Load Theory and Its Implications for Reading Comprehension in Secondary Education Environments</h1>
+    <p class="byline">Dr. Sandra Hoffmann, Ph.D¹ &nbsp;·&nbsp; Prof. James L. Whitmore, Ed.D² &nbsp;·&nbsp; Dr. Lucía Fernández, Ph.D³</p>
+    <p class="date">¹ University of Michigan &nbsp;·&nbsp; ² Harvard Graduate School of Education &nbsp;·&nbsp; ³ Universidad Complutense de Madrid &nbsp;·&nbsp; Accepted: February 28, 2026</p>
+
+    <div class="abstract">
+        <strong>Abstract</strong>
+        <p>This article examines the relationship between cognitive load and reading comprehension outcomes in secondary school students aged 13–18. Drawing on Sweller's (1988) cognitive load theory and subsequent developments in working memory research, we analyze how intrinsic, extraneous, and germane load interact during sustained reading tasks. Our review of 47 longitudinal studies (N = 12,840) suggests that environmental factors significantly elevate extraneous cognitive load, reducing available working memory capacity for deep reading comprehension by an estimated 31–44%. Implications for instructional design and classroom policy are discussed.</p>
+    </div>
+
+    <h2>1. Introduction</h2>
+    <p>Reading comprehension remains one of the most extensively studied competencies in educational psychology. Cognitive load theory, originally formulated by Sweller (1988) and later expanded by Paas, Renkl, and Sweller (2003), proposes that human working memory is limited in both capacity and duration, and that learning tasks vary in the degree to which they impose demands on this finite resource.</p>
+    <p>Within secondary educational settings, students encounter reading tasks of varying complexity across multiple subject domains. Each of these genres imposes distinct cognitive demands, and the degree to which students can allocate working memory resources to meaning-making has direct implications for comprehension outcomes.</p>
+
+    <h2>2. Theoretical Framework</h2>
+    <p>Cognitive load theory distinguishes among three types of load: intrinsic load, determined by the inherent complexity of the material; extraneous load, imposed by the manner in which information is presented; and germane load, associated with schema formation. In reading contexts, extraneous load is elevated by environmental distractors that compete for attentional resources.</p>
+    <blockquote>"Working memory is not a warehouse — it is a workbench, and its surface area is severely limited." — Baddeley &amp; Hitch, 1974</blockquote>
+
+    <h2>3. Environmental Moderators</h2>
+    <p>A consistent finding across the reviewed literature is the significant negative impact of task-switching on sustained reading comprehension. Studies by Ophir, Nass, and Wagner (2009) demonstrated that chronic multitasking is associated with reduced capacity to filter irrelevant stimuli and poorer performance on sustained attention measures.</p>
+
+    <table>
+        <tr><th>Environmental Factor</th><th>Effect on Extraneous Load</th><th>Impact on Comprehension</th></tr>
+        <tr><td>Classroom noise (&gt;65dB)</td><td>+18% increase</td><td>−22% accuracy</td></tr>
+        <tr><td>Device presence (passive)</td><td>+11% increase</td><td>−14% accuracy</td></tr>
+        <tr><td>Device use (active, off-task)</td><td>+39% increase</td><td>−41% accuracy</td></tr>
+        <tr><td>Task switching (&gt;3 per session)</td><td>+27% increase</td><td>−31% accuracy</td></tr>
+        <tr><td>Optimal quiet environment</td><td>Baseline</td><td>Baseline</td></tr>
+    </table>
+    <p class="figure-caption">Table 1. Summary of environmental moderators. Adapted from Plass, Moreno &amp; Brünken (2010).</p>
+
+    <h2>4. Implications for Instructional Design</h2>
+    <p>The evidence reviewed here has several practical implications for educators. Text selection should account for the prior knowledge profiles of students. Instructional materials should minimize extraneous load through clear organizational structures. Classroom environments should establish clear expectations around device use, manage ambient noise levels, and design task sequences that minimize unnecessary context-switching.</p>
+
+    <h2>5. Conclusion</h2>
+    <p>Cognitive load theory provides a robust framework for understanding the conditions under which reading comprehension succeeds or fails. Extraneous cognitive load — particularly that arising from environmental distractors and task-switching — represents one of the most modifiable determinants of reading comprehension outcomes in secondary education. Future research should examine the dose-response relationship between specific distractor types and comprehension decrements.</p>
+
+    <h2>References</h2>
+    <div class="references">
+        <p>Baddeley, A. D., &amp; Hitch, G. J. (1974). Working memory. <em>Psychology of Learning and Motivation, 8</em>, 47–89.</p>
+        <p>Ophir, E., Nass, C., &amp; Wagner, A. D. (2009). Cognitive control in media multitaskers. <em>PNAS, 106</em>(37), 15583–15587.</p>
+        <p>Paas, F., Renkl, A., &amp; Sweller, J. (2003). Cognitive load theory and instructional design. <em>Educational Psychologist, 38</em>(1), 1–4.</p>
+        <p>Plass, J. L., Moreno, R., &amp; Brünken, R. (2010). <em>Cognitive Load Theory.</em> Cambridge University Press.</p>
+        <p>Sweller, J. (1988). Cognitive load during problem solving. <em>Cognitive Science, 12</em>(2), 257–285.</p>
+    </div>
+
+</div>
+</body>
+</html>
+"""
+
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)
