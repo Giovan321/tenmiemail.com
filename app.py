@@ -58,31 +58,39 @@ td,th{ border:1px solid black; padding:10px; }
 </head>
 <body>
 
-<!-- NOTIFICATION BANNER -->
-<div id="notif-banner" style="
-    position:fixed; top:0; left:0; right:0; z-index:999;
-    background:linear-gradient(90deg,#1a1a2e,#0f3460);
-    color:#FFD700; font-family:'Press Start 2P',monospace;
-    font-size:0.55rem; padding:10px 20px;
-    display:flex; align-items:center; justify-content:space-between;
-    box-shadow:0 2px 20px rgba(0,0,0,0.5);
+<!-- COOKIE-STYLE POPUP -->
+<div id="how-to-popup" style="
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    z-index:99998; background:#1a1a2e;
+    border:1px solid rgba(255,215,0,0.3);
+    border-radius:14px; padding:18px 24px;
+    max-width:420px; width:90%;
+    box-shadow:0 8px 32px rgba(0,0,0,0.5);
+    display:flex; align-items:center; gap:16px;
+    font-family:Arial,sans-serif;
 ">
-    <span>📢 NEW: Read our latest research article — click the button in the corner!</span>
-    <button onclick="document.getElementById('notif-banner').style.display='none'"
-        style="background:none;border:none;color:#FFD700;cursor:pointer;font-size:1rem;padding:0 8px;">✕</button>
+    <div style="flex:1;">
+        <div style="font-size:0.82rem; color:#FFD700; font-weight:bold; margin-bottom:6px;">🚨 Panic Button</div>
+        <div style="font-size:0.75rem; color:#aaa; line-height:1.5;">If the teacher comes, press the red button in the top-left corner — it'll switch to a boring study article instantly.</div>
+    </div>
+    <button onclick="document.getElementById('how-to-popup').style.display='none'" style="
+        background:#c0392b; color:white; border:none;
+        padding:10px 16px; border-radius:8px;
+        font-size:0.75rem; font-weight:bold;
+        cursor:pointer; white-space:nowrap; flex-shrink:0;
+    ">Got it ✓</button>
 </div>
 
-<!-- BOUNCING CORNER BUTTON -->
+<!-- PANIC BUTTON — TOP LEFT -->
 <a href="/article" style="
-    position:fixed; bottom:24px; right:24px; z-index:999;
-    background:linear-gradient(135deg,#FF6B00,#FFD700);
-    color:#000; font-family:'Press Start 2P',monospace;
-    font-size:0.5rem; padding:12px 16px;
-    border-radius:12px; text-decoration:none;
-    box-shadow:0 4px 20px rgba(255,165,0,0.5);
-    animation:bounce 2s infinite;
-    line-height:1.6; text-align:center;
-">⚠️ CLICK IF<br>THE MISS<br>COMES</a>
+    position:fixed; top:16px; left:16px; z-index:99999;
+    background:#c0392b; color:white;
+    font-family:Arial,sans-serif; font-weight:bold;
+    font-size:0.8rem; padding:14px 18px;
+    border-radius:10px; text-decoration:none;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    line-height:1.5; text-align:center;
+">🚨 TEACHER<br>COMING</a>
 
 <style>
 @keyframes bounce { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-8px);} }
@@ -115,14 +123,13 @@ td,th{ border:1px solid black; padding:10px; }
 
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
-    position:fixed; bottom:20px; right:20px; z-index:99999;
+    position:fixed; top:16px; left:16px; z-index:99999;
     background:#c0392b; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.72rem; padding:10px 14px;
-    border-radius:8px; text-decoration:none;
+    font-size:0.8rem; padding:14px 18px;
+    border-radius:10px; text-decoration:none;
     box-shadow:0 4px 16px rgba(0,0,0,0.4);
     line-height:1.5; text-align:center;
-    opacity:0.9;
 ">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
@@ -691,14 +698,13 @@ function resetGame(){
 
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
-    position:fixed; bottom:20px; right:20px; z-index:99999;
+    position:fixed; top:16px; left:16px; z-index:99999;
     background:#c0392b; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.72rem; padding:10px 14px;
-    border-radius:8px; text-decoration:none;
+    font-size:0.8rem; padding:14px 18px;
+    border-radius:10px; text-decoration:none;
     box-shadow:0 4px 16px rgba(0,0,0,0.4);
     line-height:1.5; text-align:center;
-    opacity:0.9;
 ">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
@@ -1062,14 +1068,13 @@ document.getElementById('stats-input').addEventListener('keydown', e=>{ if(e.key
 
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
-    position:fixed; bottom:20px; right:20px; z-index:99999;
+    position:fixed; top:16px; left:16px; z-index:99999;
     background:#c0392b; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.72rem; padding:10px 14px;
-    border-radius:8px; text-decoration:none;
+    font-size:0.8rem; padding:14px 18px;
+    border-radius:10px; text-decoration:none;
     box-shadow:0 4px 16px rgba(0,0,0,0.4);
     line-height:1.5; text-align:center;
-    opacity:0.9;
 ">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
@@ -1367,14 +1372,13 @@ function sendAttack(move){
 
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
-    position:fixed; bottom:20px; right:20px; z-index:99999;
+    position:fixed; top:16px; left:16px; z-index:99999;
     background:#c0392b; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.72rem; padding:10px 14px;
-    border-radius:8px; text-decoration:none;
+    font-size:0.8rem; padding:14px 18px;
+    border-radius:10px; text-decoration:none;
     box-shadow:0 4px 16px rgba(0,0,0,0.4);
     line-height:1.5; text-align:center;
-    opacity:0.9;
 ">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
@@ -1616,14 +1620,13 @@ function sendAttack(move){document.querySelectorAll('.atk-btn').forEach(b=>b.dis
 
 <!-- PANIC BUTTON -->
 <a href="/article" id="panic-btn" style="
-    position:fixed; bottom:20px; right:20px; z-index:99999;
+    position:fixed; top:16px; left:16px; z-index:99999;
     background:#c0392b; color:white;
     font-family:Arial,sans-serif; font-weight:bold;
-    font-size:0.72rem; padding:10px 14px;
-    border-radius:8px; text-decoration:none;
+    font-size:0.8rem; padding:14px 18px;
+    border-radius:10px; text-decoration:none;
     box-shadow:0 4px 16px rgba(0,0,0,0.4);
     line-height:1.5; text-align:center;
-    opacity:0.9;
 ">🚨 TEACHER<br>COMING</a>
 </body>
 </html>
