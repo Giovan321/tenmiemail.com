@@ -2,6 +2,7 @@ from flask import Flask, request, render_template_string, session
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import random, string
 import psycopg2
+import eventlet
 
 app = Flask(__name__)
 
@@ -135,6 +136,11 @@ h1 {
 .email-table tr:last-child td { border-bottom:none; }
 .email-table tr:hover td { background:rgba(255,215,0,0.04); color:white; }
 .no-results { color:#555; font-size:0.85rem; padding:20px; }
+.lb-top3 { position:relative; z-index:1; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:18px 0 0; }
+.lb-card { background:rgba(255,215,0,0.07); border:1px solid rgba(255,215,0,0.2); border-radius:12px; padding:10px 18px; text-align:center; min-width:120px; }
+.lb-rank { font-family:'Press Start 2P',monospace; font-size:1rem; margin-bottom:4px; }
+.lb-name { font-size:0.82rem; font-weight:700; color:white; }
+.lb-pts  { font-size:0.72rem; color:#aaa; }
 </style>
 </head>
 <body>
@@ -186,6 +192,19 @@ h1 {
     <a class="game-btn" href="/game">🕹️ Local Game</a>
     &nbsp;&nbsp;
     <a class="game-btn" href="/online">🌍 Play Online</a>
+    &nbsp;&nbsp;
+    <a class="game-btn" href="/leaderboard" style="background:linear-gradient(135deg,#4a00e0,#8e2de2);color:white;">🏆 Leaderboard</a>
+    {% if top3 %}
+    <div class="lb-top3">
+    {% for p in top3 %}
+        <div class="lb-card">
+            <div class="lb-rank">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% else %}🥉{% endif %}</div>
+            <div class="lb-name">{{ p.username }}</div>
+            <div class="lb-pts">{{ p.points }} pts · {{ p.wins }}W {{ p.losses }}L</div>
+        </div>
+    {% endfor %}
+    </div>
+    {% endif %}
 </div>
 
 <div class="email-section">
@@ -808,6 +827,8 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 # In-memory room state
 rooms = {}  # { room_code: { players: [], game: {} } }
 waiting_pool = []  # list of sid waiting for random match
+turn_timers  = {}  # { room_code: greenlet }
+rematch_data = {}  # { room_code: {p:[{sid,username,pokemon}], requester_sid} }
 
 def make_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
@@ -849,12 +870,60 @@ def get_stats(username):
     cur = conn.cursor()
     cur.execute("SELECT wins, losses FROM usernames WHERE username=%s", (username,))
     row = cur.fetchone()
-    cur.close(); conn.close()
-    if not row: return None
+    if not row:
+        cur.close(); conn.close()
+        return None
     wins, losses = row
     total = wins + losses
     rate = round((wins/total)*100) if total > 0 else 0
-    return {"wins": wins, "losses": losses, "total": total, "rate": rate}
+    points = wins * 10 - losses * 10
+    cur.execute("SELECT COUNT(*)+1 FROM usernames WHERE wins*10 - losses*10 > %s", (points,))
+    rank = cur.fetchone()[0]
+    cur.close(); conn.close()
+    return {"wins": wins, "losses": losses, "total": total, "rate": rate, "points": points, "rank": rank}
+
+def get_leaderboard(limit=10):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT username, wins, losses, wins*10 - losses*10 AS points
+        FROM usernames
+        ORDER BY points DESC, wins DESC
+        LIMIT %s
+    """, (limit,))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"username": r[0], "wins": r[1], "losses": r[2], "points": r[3]} for r in rows]
+
+def cancel_turn_timer(code):
+    if code in turn_timers:
+        try: turn_timers[code].cancel()
+        except: pass
+        del turn_timers[code]
+
+def do_timeout(code):
+    if code not in rooms:
+        return
+    room = rooms[code]
+    players = room['players']
+    losing_idx  = room['turn']
+    winning_idx = 1 - losing_idx
+    if losing_idx >= len(players) or winning_idx >= len(players):
+        return
+    loser  = players[losing_idx]
+    winner = players[winning_idx]
+    save_match(players[0]['username'], players[1]['username'], winner['username'])
+    log_msg = f"⏱️ {loser['username']} timed out — {winner['username']} wins!"
+    rematch_data[code] = {'p': [{'sid': p['sid'], 'username': p['username'], 'pokemon': p['pokemon']} for p in players]}
+    del rooms[code]
+    if code in turn_timers:
+        del turn_timers[code]
+    socketio.emit('game_over', {'winner': winner['username'], 'log': log_msg, 'your_hp': winner['hp'], 'opp_hp': 0}, to=winner['sid'])
+    socketio.emit('game_over', {'winner': winner['username'], 'log': log_msg, 'your_hp': 0, 'opp_hp': winner['hp']}, to=loser['sid'])
+
+def start_turn_timer(code):
+    cancel_turn_timer(code)
+    turn_timers[code] = eventlet.spawn_after(30, do_timeout, code)
 
 # ── FLASK ROUTES ──
 @app.route("/", methods=["GET", "POST"])
@@ -883,7 +952,8 @@ def index():
 
     cur.close()
     conn.close()
-    return render_template_string(html, emails=emails, mensaje=mensaje)
+    top3 = get_leaderboard(3)
+    return render_template_string(html, emails=emails, mensaje=mensaje, top3=top3)
 
 @app.route("/game")
 def game():
@@ -911,6 +981,14 @@ def stats(username):
     if not data:
         return {"error": "User not found"}, 404
     return data
+
+@app.route("/api/leaderboard")
+def leaderboard_api():
+    return {"players": get_leaderboard(10)}
+
+@app.route("/leaderboard")
+def leaderboard_page():
+    return render_template_string(leaderboard_html)
 
 # ── SOCKET EVENTS ──
 @socketio.on('join_friend_room')
@@ -998,6 +1076,7 @@ def start_game(code):
         'your_hp':  150, 'opp_hp': 150,
         'your_turn': False, 'code': code
     }, to=p2['sid'])
+    start_turn_timer(code)
 
 @socketio.on('attack')
 def on_attack(data):
@@ -1006,6 +1085,7 @@ def on_attack(data):
     sid    = request.sid
 
     if code not in rooms: return
+    cancel_turn_timer(code)
     room = rooms[code]
     players = room['players']
 
@@ -1036,6 +1116,7 @@ def on_attack(data):
             'your_hp': defender['hp'], 'opp_hp': attacker['hp'],
             'your_turn': True
         }, to=defender['sid'])
+        start_turn_timer(code)
     else:
         dmg = get_damage(move)
         if defender['dodge']:
@@ -1049,6 +1130,8 @@ def on_attack(data):
         if defender['hp'] <= 0:
             winner = attacker['username']
             save_match(players[0]['username'], players[1]['username'], winner)
+            rematch_data[code] = {'p': [{'sid': p['sid'], 'username': p['username'], 'pokemon': p['pokemon']} for p in players]}
+            del rooms[code]
             socketio.emit('game_over', {
                 'winner': winner, 'log': msg,
                 'your_hp': attacker['hp'], 'opp_hp': defender['hp']
@@ -1057,7 +1140,6 @@ def on_attack(data):
                 'winner': winner, 'log': msg,
                 'your_hp': defender['hp'], 'opp_hp': attacker['hp']
             }, to=defender['sid'])
-            del rooms[code]
             return
 
         # Next turn
@@ -1072,6 +1154,63 @@ def on_attack(data):
             'your_hp': defender['hp'], 'opp_hp': attacker['hp'],
             'your_turn': True
         }, to=defender['sid'])
+        start_turn_timer(code)
+
+@socketio.on('chat_message')
+def on_chat(data):
+    code = data.get('code', '')
+    text = data.get('text', '').strip()[:200]
+    if not text or not code:
+        return
+    sid = request.sid
+    if code not in rooms:
+        return
+    room = rooms[code]
+    sender = next((p['username'] for p in room['players'] if p['sid'] == sid), 'Unknown')
+    socketio.emit('chat_incoming', {'username': sender, 'text': text}, room=code)
+
+@socketio.on('rematch_request')
+def on_rematch_request(data):
+    code = data.get('code', '')
+    sid  = request.sid
+    if code not in rematch_data:
+        emit('error', {'msg': 'Rematch data expired'}); return
+    rd = rematch_data[code]
+    players = rd['p']
+    requester = next((p for p in players if p['sid'] == sid), None)
+    opponent  = next((p for p in players if p['sid'] != sid), None)
+    if not requester or not opponent:
+        emit('error', {'msg': 'Player not found'}); return
+    rd['requester_sid'] = sid
+    socketio.emit('rematch_incoming', {'from': requester['username'], 'code': code}, to=opponent['sid'])
+
+@socketio.on('rematch_accept')
+def on_rematch_accept(data):
+    code = data.get('code', '')
+    if code not in rematch_data:
+        emit('error', {'msg': 'Rematch expired'}); return
+    rd = rematch_data[code]
+    players = rd['p']
+    new_code = make_code()
+    rooms[new_code] = {
+        'players': [{'sid': p['sid'], 'username': p['username'], 'pokemon': p['pokemon'], 'hp': 150, 'dodge': False} for p in players],
+        'turn': 0, 'started': False
+    }
+    for p in players:
+        socketio.server.enter_room(p['sid'], new_code)
+    del rematch_data[code]
+    start_game(new_code)
+
+@socketio.on('rematch_deny')
+def on_rematch_deny(data):
+    code = data.get('code', '')
+    if code not in rematch_data:
+        return
+    rd = rematch_data[code]
+    req_sid = rd.get('requester_sid')
+    if req_sid:
+        socketio.emit('rematch_denied', {}, to=req_sid)
+    del rematch_data[code]
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -1081,6 +1220,7 @@ def on_disconnect():
     for code, room in list(rooms.items()):
         for p in room['players']:
             if p['sid'] == sid:
+                cancel_turn_timer(code)
                 socketio.emit('opponent_left', {'msg': 'Opponent disconnected.'}, room=code)
                 del rooms[code]
                 break
@@ -1132,10 +1272,15 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
         <h3>PLAY RANDOM</h3>
         <p>Get matched with a random opponent from anywhere.</p>
     </a>
+    <a class="card" href="/leaderboard">
+        <span class="icon">🏆</span>
+        <h3>LEADERBOARD</h3>
+        <p>See the top players ranked by points. +10 per win, -10 per loss.</p>
+    </a>
 </div>
 
 <div class="stats-box">
-    <h3>📊 CHECK WIN RATE</h3>
+    <h3>📊 STATS &amp; RANK</h3>
     <div class="stats-row">
         <input type="text" id="stats-input" placeholder="Enter username" maxlength="20">
         <button onclick="checkStats()">GO</button>
@@ -1153,7 +1298,7 @@ async function checkStats(){
     const el  = document.getElementById('stats-result');
     if(res.status===404){ el.innerHTML='❌ Username not found.'; return; }
     const d = await res.json();
-    el.innerHTML = `<span class="big">${d.rate}%</span> win rate<br>${d.wins} wins · ${d.losses} losses · ${d.total} games`;
+    el.innerHTML = `<span class="big">${d.rate}%</span> win rate &nbsp;·&nbsp; <span class="big" style="color:#c084fc">#${d.rank}</span> rank<br>${d.wins} wins · ${d.losses} losses · ${d.total} games · <strong>${d.points} pts</strong>`;
 }
 document.getElementById('stats-input').addEventListener('keydown', e=>{ if(e.key==='Enter') checkStats(); });
 </script>
@@ -1244,6 +1389,23 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 .result-box h2{font-family:'Press Start 2P',monospace;font-size:0.9rem;color:var(--yellow);margin-bottom:8px;}
 .result-box p{color:#888;font-size:0.82rem;margin-bottom:20px;}
 .result-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+/* timer */
+.timer-bar{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:#ff6b6b;margin-bottom:6px;text-align:center;display:none;}
+.timer-bar.active{display:block;}
+.timer-bar span{font-size:0.9rem;}
+/* chat */
+.chat-wrap{width:100%;max-width:660px;margin-top:10px;}
+.chat-msgs{background:#0d0d1a;border:1px solid #2a3050;border-radius:10px 10px 0 0;height:90px;overflow-y:auto;padding:7px 12px;font-size:0.8rem;color:#aaa;line-height:1.7;}
+.chat-row{display:flex;gap:0;}
+.chat-row input{flex:1;background:#161e3a;border:1px solid #2a3050;border-top:none;border-radius:0 0 0 10px;color:white;padding:7px 12px;font-family:'Nunito',sans-serif;font-size:0.85rem;outline:none;}
+.chat-row input:focus{border-color:var(--yellow);}
+.chat-row button{background:var(--orange);color:#000;border:none;padding:7px 14px;border-radius:0 0 10px 0;font-weight:bold;cursor:pointer;font-size:0.8rem;}
+/* rematch dialog */
+.rm-dialog{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;align-items:center;justify-content:center;}
+.rm-dialog.show{display:flex;}
+.rm-box{background:var(--card);border:2px solid var(--yellow);border-radius:20px;padding:30px 38px;text-align:center;}
+.rm-box h3{font-family:'Press Start 2P',monospace;font-size:0.65rem;color:var(--yellow);margin-bottom:12px;}
+.rm-box p{color:#aaa;font-size:0.88rem;margin-bottom:18px;}
 </style>
 </head>
 <body>
@@ -1313,8 +1475,28 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
         </div>
     </div>
     <div class="turn-label" id="turn-label">YOUR TURN</div>
+    <div class="timer-bar" id="timer-bar">⏱️ <span id="timer-secs">30</span>s left</div>
     <div class="battle-log" id="battle-log">Battle begins!</div>
     <div class="attacks-grid" id="attacks-grid"></div>
+    <div class="chat-wrap">
+        <div class="chat-msgs" id="chat-msgs"></div>
+        <div class="chat-row">
+            <input type="text" id="chat-input" placeholder="Say something..." maxlength="200" onkeydown="if(event.key==='Enter')sendChat()">
+            <button onclick="sendChat()">Send</button>
+        </div>
+    </div>
+</div>
+
+<!-- REMATCH DIALOG -->
+<div class="rm-dialog" id="rm-dialog">
+    <div class="rm-box">
+        <h3>⚔️ REMATCH REQUEST</h3>
+        <p id="rm-msg">Opponent wants a rematch!</p>
+        <div style="display:flex;gap:10px;justify-content:center;">
+            <button class="btn-primary" onclick="acceptRematch()">Accept</button>
+            <button class="btn-secondary" onclick="denyRematch()">Deny</button>
+        </div>
+    </div>
 </div>
 
 <!-- RESULT OVERLAY -->
@@ -1324,6 +1506,7 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
         <h2 id="res-title">WINNER!</h2>
         <p  id="res-sub"></p>
         <div class="result-btns">
+            <button class="btn-primary" id="rematch-btn" onclick="requestRematch()">⚔️ Rematch</button>
             <button class="btn-primary"   onclick="window.location.href='/online/friend'">Play Again</button>
             <button class="btn-secondary" onclick="window.location.href='/online'">Main Menu</button>
         </div>
@@ -1342,6 +1525,7 @@ const ATTACKS = {
 
 const socket = io();
 let myPokemon='', myUsername='', roomCode='', myTurn=false, myIdx=0;
+let timerInterval=null, pendingRematchCode='';
 
 function showScreen(id){
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
@@ -1391,10 +1575,14 @@ socket.on('game_start', d=>{
     document.getElementById('f-you-img').src=POKE_IMG[d.your_pokemon];
     document.getElementById('f-opp-img').src=POKE_IMG[d.opp_pokemon];
     myPokemon=d.your_pokemon;
-    updateHP(d.your_hp, d.opp_hp);
+    setBar('f-you-bar','f-you-hp',d.your_hp);
+    setBar('f-opp-bar','f-opp-hp',d.opp_hp);
     renderAttacks(myTurn);
     showScreen('battle');
     setLog('Battle begins! ' + (myTurn?'Your turn!':'Waiting for opponent...'));
+    document.getElementById('chat-msgs').innerHTML='';
+    document.getElementById('result-overlay').classList.remove('show');
+    document.getElementById('rm-dialog').classList.remove('show');
 });
 
 socket.on('move_result', d=>{
@@ -1411,6 +1599,7 @@ socket.on('move_result', d=>{
 });
 
 socket.on('game_over', d=>{
+    stopTimer();
     setBar('f-you-bar','f-you-hp', d.your_hp);
     setBar('f-opp-bar','f-opp-hp', d.opp_hp);
     setLog(d.log);
@@ -1418,13 +1607,82 @@ socket.on('game_over', d=>{
     document.getElementById('res-img').src=won?POKE_IMG[myPokemon]:POKE_IMG[myPokemon==='pikachu'?'charizard':'pikachu'];
     document.getElementById('res-title').textContent=won?'YOU WIN! 🏆':'YOU LOST 💀';
     document.getElementById('res-sub').textContent=won?'GG! Victory recorded.':'Better luck next time!';
+    document.getElementById('rematch-btn').disabled=false;
+    document.getElementById('rematch-btn').textContent='⚔️ Rematch';
     document.getElementById('result-overlay').classList.add('show');
 });
 
 socket.on('opponent_left', d=>{
+    stopTimer();
     alert(d.msg);
     window.location.href='/online/friend';
 });
+
+socket.on('chat_incoming', d=>{
+    const box=document.getElementById('chat-msgs');
+    const isMe=d.username===myUsername;
+    box.innerHTML+=`<span style="color:${isMe?'#FFD700':'#74b9ff'}">${d.username}:</span> ${escHtml(d.text)}<br>`;
+    box.scrollTop=box.scrollHeight;
+});
+
+socket.on('rematch_incoming', d=>{
+    pendingRematchCode=d.code;
+    document.getElementById('rm-msg').textContent=d.from+' wants a rematch!';
+    document.getElementById('rm-dialog').classList.add('show');
+});
+
+socket.on('rematch_denied', ()=>{
+    alert('Opponent declined the rematch.');
+});
+
+function startTimer(){
+    stopTimer();
+    let secs=30;
+    const bar=document.getElementById('timer-bar');
+    const num=document.getElementById('timer-secs');
+    bar.classList.add('active');
+    num.textContent=secs;
+    timerInterval=setInterval(()=>{
+        secs--;
+        num.textContent=secs;
+        if(secs<=0) stopTimer();
+    },1000);
+}
+
+function stopTimer(){
+    clearInterval(timerInterval);
+    timerInterval=null;
+    document.getElementById('timer-bar').classList.remove('active');
+}
+
+function sendChat(){
+    const inp=document.getElementById('chat-input');
+    const text=inp.value.trim();
+    if(!text||!roomCode) return;
+    socket.emit('chat_message',{code:roomCode,text});
+    inp.value='';
+}
+
+function requestRematch(){
+    if(!roomCode) return;
+    document.getElementById('rematch-btn').disabled=true;
+    document.getElementById('rematch-btn').textContent='Waiting...';
+    socket.emit('rematch_request',{code:roomCode});
+}
+
+function acceptRematch(){
+    document.getElementById('rm-dialog').classList.remove('show');
+    socket.emit('rematch_accept',{code:pendingRematchCode});
+}
+
+function denyRematch(){
+    document.getElementById('rm-dialog').classList.remove('show');
+    socket.emit('rematch_deny',{code:pendingRematchCode});
+    pendingRematchCode='';
+}
+
+function escHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
 
 function hurtImg(imgId){
     const img=document.getElementById(imgId);
@@ -1450,6 +1708,7 @@ function renderAttacks(myTurn){
     document.getElementById('turn-label').textContent=myTurn?"YOUR TURN":"OPPONENT'S TURN...";
     document.getElementById('f-you').classList.toggle('active-turn',myTurn);
     document.getElementById('f-opp').classList.toggle('active-turn',!myTurn);
+    if(myTurn) startTimer(); else stopTimer();
     ATTACKS[myPokemon].forEach(atk=>{
         const btn=document.createElement('button');
         btn.className='atk-btn';
@@ -1467,6 +1726,7 @@ function renderAttacks(myTurn){
 }
 
 function sendAttack(move){
+    stopTimer();
     document.querySelectorAll('.atk-btn').forEach(b=>b.disabled=true);
     socket.emit('attack',{code:roomCode, move:move});
 }
@@ -1553,6 +1813,20 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 .result-box h2{font-family:'Press Start 2P',monospace;font-size:0.9rem;color:var(--yellow);margin-bottom:8px;}
 .result-box p{color:#888;font-size:0.82rem;margin-bottom:20px;}
 .result-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+.timer-bar{font-family:'Press Start 2P',monospace;font-size:0.48rem;color:#ff6b6b;margin-bottom:6px;text-align:center;display:none;}
+.timer-bar.active{display:block;}
+.timer-bar span{font-size:0.9rem;}
+.chat-wrap{width:100%;max-width:660px;margin-top:10px;}
+.chat-msgs{background:#0d0d1a;border:1px solid #2a3050;border-radius:10px 10px 0 0;height:90px;overflow-y:auto;padding:7px 12px;font-size:0.8rem;color:#aaa;line-height:1.7;}
+.chat-row{display:flex;gap:0;}
+.chat-row input{flex:1;background:#161e3a;border:1px solid #2a3050;border-top:none;border-radius:0 0 0 10px;color:white;padding:7px 12px;font-family:'Nunito',sans-serif;font-size:0.85rem;outline:none;}
+.chat-row input:focus{border-color:var(--yellow);}
+.chat-row button{background:var(--orange);color:#000;border:none;padding:7px 14px;border-radius:0 0 10px 0;font-weight:bold;cursor:pointer;font-size:0.8rem;}
+.rm-dialog{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;align-items:center;justify-content:center;}
+.rm-dialog.show{display:flex;}
+.rm-box{background:var(--card);border:2px solid var(--yellow);border-radius:20px;padding:30px 38px;text-align:center;}
+.rm-box h3{font-family:'Press Start 2P',monospace;font-size:0.65rem;color:var(--yellow);margin-bottom:12px;}
+.rm-box p{color:#aaa;font-size:0.88rem;margin-bottom:18px;}
 </style>
 </head>
 <body>
@@ -1612,8 +1886,28 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
         </div>
     </div>
     <div class="turn-label" id="turn-label">YOUR TURN</div>
+    <div class="timer-bar" id="timer-bar">⏱️ <span id="timer-secs">30</span>s left</div>
     <div class="battle-log" id="battle-log">Battle begins!</div>
     <div class="attacks-grid" id="attacks-grid"></div>
+    <div class="chat-wrap">
+        <div class="chat-msgs" id="chat-msgs"></div>
+        <div class="chat-row">
+            <input type="text" id="chat-input" placeholder="Say something..." maxlength="200" onkeydown="if(event.key==='Enter')sendChat()">
+            <button onclick="sendChat()">Send</button>
+        </div>
+    </div>
+</div>
+
+<!-- REMATCH DIALOG -->
+<div class="rm-dialog" id="rm-dialog">
+    <div class="rm-box">
+        <h3>⚔️ REMATCH REQUEST</h3>
+        <p id="rm-msg">Opponent wants a rematch!</p>
+        <div style="display:flex;gap:10px;justify-content:center;">
+            <button class="btn-primary" onclick="acceptRematch()">Accept</button>
+            <button class="btn-secondary" onclick="denyRematch()">Deny</button>
+        </div>
+    </div>
 </div>
 
 <!-- RESULT -->
@@ -1623,6 +1917,7 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
         <h2 id="res-title">WINNER!</h2>
         <p  id="res-sub"></p>
         <div class="result-btns">
+            <button class="btn-primary" id="rematch-btn" onclick="requestRematch()">⚔️ Rematch</button>
             <button class="btn-primary"   onclick="window.location.href='/online/random'">Play Again</button>
             <button class="btn-secondary" onclick="window.location.href='/online'">Main Menu</button>
         </div>
@@ -1633,7 +1928,7 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 const POKE_IMG={pikachu:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',charizard:'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png'};
 const ATTACKS={pikachu:[{name:'Electro Rope',dmg:'1–100'},{name:'Iron Tail',dmg:'40–90'},{name:'Elite Thunder',dmg:'50–80'},{name:'Charge',dmg:'50'}],charizard:[{name:'Fire Ring',dmg:'1–100'},{name:'Ancient Power',dmg:'40–90'},{name:'Fire Ball',dmg:'50–80'},{name:'Charge',dmg:'50'}]};
 const socket=io();
-let myPokemon='',myUsername='',roomCode='',myTurn=false;
+let myPokemon='',myUsername='',roomCode='',myTurn=false,timerInterval=null,pendingRematchCode='';
 
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function selPoke(p){myPokemon=p;document.getElementById('pika-btn').className='poke-btn'+(p==='pikachu'?' sel-pika':'');document.getElementById('char-btn').className='poke-btn'+(p==='charizard'?' sel-char':'');}
@@ -1658,6 +1953,7 @@ socket.on('cancelled',()=>window.location.href='/online');
 
 socket.on('game_start',d=>{
     roomCode=d.code; myTurn=d.your_turn; myPokemon=d.your_pokemon;
+    myUsername=document.getElementById('username').value.trim()||d.you;
     document.getElementById('f-you-name').textContent=d.you;
     document.getElementById('f-opp-name').textContent=d.opponent;
     document.getElementById('f-you-poke').textContent=d.your_pokemon.toUpperCase();
@@ -1669,6 +1965,9 @@ socket.on('game_start',d=>{
     renderAttacks(myTurn);
     showScreen('battle');
     setLog('Battle begins! '+(myTurn?'Your turn!':'Waiting for opponent...'));
+    document.getElementById('chat-msgs').innerHTML='';
+    document.getElementById('result-overlay').classList.remove('show');
+    document.getElementById('rm-dialog').classList.remove('show');
 });
 
 socket.on('move_result',d=>{
@@ -1684,6 +1983,7 @@ socket.on('move_result',d=>{
 });
 
 socket.on('game_over',d=>{
+    stopTimer();
     setBar('f-you-bar','f-you-hp', d.your_hp);
     setBar('f-opp-bar','f-opp-hp', d.opp_hp);
     setLog(d.log);
@@ -1691,10 +1991,62 @@ socket.on('game_over',d=>{
     document.getElementById('res-img').src=won?POKE_IMG[myPokemon]:POKE_IMG[myPokemon==='pikachu'?'charizard':'pikachu'];
     document.getElementById('res-title').textContent=won?'YOU WIN! 🏆':'YOU LOST 💀';
     document.getElementById('res-sub').textContent=won?'GG! Victory recorded.':'Better luck next time!';
+    document.getElementById('rematch-btn').disabled=false;
+    document.getElementById('rematch-btn').textContent='⚔️ Rematch';
     document.getElementById('result-overlay').classList.add('show');
 });
 
-socket.on('opponent_left',d=>{alert(d.msg);window.location.href='/online/random';});
+socket.on('opponent_left',d=>{stopTimer();alert(d.msg);window.location.href='/online/random';});
+
+socket.on('chat_incoming',d=>{
+    const box=document.getElementById('chat-msgs');
+    const isMe=d.username===myUsername;
+    box.innerHTML+=`<span style="color:${isMe?'#FFD700':'#74b9ff'}">${d.username}:</span> ${escHtml(d.text)}<br>`;
+    box.scrollTop=box.scrollHeight;
+});
+
+socket.on('rematch_incoming',d=>{
+    pendingRematchCode=d.code;
+    document.getElementById('rm-msg').textContent=d.from+' wants a rematch!';
+    document.getElementById('rm-dialog').classList.add('show');
+});
+
+socket.on('rematch_denied',()=>{ alert('Opponent declined the rematch.'); });
+
+function startTimer(){
+    stopTimer();
+    let secs=30;
+    const bar=document.getElementById('timer-bar');
+    const num=document.getElementById('timer-secs');
+    bar.classList.add('active'); num.textContent=secs;
+    timerInterval=setInterval(()=>{ secs--; num.textContent=secs; if(secs<=0) stopTimer(); },1000);
+}
+function stopTimer(){
+    clearInterval(timerInterval); timerInterval=null;
+    document.getElementById('timer-bar').classList.remove('active');
+}
+function sendChat(){
+    const inp=document.getElementById('chat-input');
+    const text=inp.value.trim();
+    if(!text||!roomCode) return;
+    socket.emit('chat_message',{code:roomCode,text}); inp.value='';
+}
+function requestRematch(){
+    if(!roomCode) return;
+    document.getElementById('rematch-btn').disabled=true;
+    document.getElementById('rematch-btn').textContent='Waiting...';
+    socket.emit('rematch_request',{code:roomCode});
+}
+function acceptRematch(){
+    document.getElementById('rm-dialog').classList.remove('show');
+    socket.emit('rematch_accept',{code:pendingRematchCode});
+}
+function denyRematch(){
+    document.getElementById('rm-dialog').classList.remove('show');
+    socket.emit('rematch_deny',{code:pendingRematchCode});
+    pendingRematchCode='';
+}
+function escHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function hurtImg(imgId){const img=document.getElementById(imgId);if(!img)return;img.classList.add('hurt');setTimeout(()=>img.classList.remove('hurt'),700);}
 function setBar(barId,numId,hp){const pct=Math.max(0,(hp/150)*100);const bar=document.getElementById(barId);if(!bar)return;bar.style.width=pct+'%';bar.className='hp-fill '+(pct>50?'high':pct>20?'mid':'low');document.getElementById(numId).textContent=Math.max(0,Math.round(hp));}
@@ -1706,6 +2058,7 @@ function renderAttacks(myTurn){
     document.getElementById('turn-label').textContent=myTurn?"YOUR TURN":"OPPONENT'S TURN...";
     document.getElementById('f-you').classList.toggle('active-turn',myTurn);
     document.getElementById('f-opp').classList.toggle('active-turn',!myTurn);
+    if(myTurn) startTimer(); else stopTimer();
     ATTACKS[myPokemon].forEach(atk=>{
         const btn=document.createElement('button');
         btn.className='atk-btn'; btn.disabled=!myTurn;
@@ -1720,7 +2073,7 @@ function renderAttacks(myTurn){
     grid.appendChild(d);
 }
 
-function sendAttack(move){document.querySelectorAll('.atk-btn').forEach(b=>b.disabled=true);socket.emit('attack',{code:roomCode,move:move});}
+function sendAttack(move){stopTimer();document.querySelectorAll('.atk-btn').forEach(b=>b.disabled=true);socket.emit('attack',{code:roomCode,move:move});}
 </script>
 
 <!-- PANIC BUTTON -->
@@ -1733,6 +2086,74 @@ function sendAttack(move){document.querySelectorAll('.atk-btn').forEach(b=>b.dis
     box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
+</body>
+</html>
+"""
+
+leaderboard_html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>🏆 Leaderboard — Pokémon Battle</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--yellow:#FFD700;--orange:#FF6B00;--dark:#0d0d1a;--card:#16213e;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:60px 20px 80px;text-align:center;}
+.logo{font-family:'Press Start 2P',monospace;font-size:clamp(1rem,3vw,1.8rem);color:var(--yellow);text-shadow:0 0 30px rgba(255,215,0,0.5),3px 3px 0 #b8860b;margin-bottom:8px;}
+.sub{color:#666;font-size:0.78rem;letter-spacing:3px;text-transform:uppercase;margin-bottom:40px;}
+.lb-wrap{width:100%;max-width:560px;}
+.lb-row{display:flex;align-items:center;gap:14px;background:var(--card);border-radius:14px;padding:16px 20px;margin-bottom:10px;border:1px solid #1e2a4a;transition:border-color 0.2s;}
+.lb-row:hover{border-color:rgba(255,215,0,0.3);}
+.lb-row.top1{border-color:gold;background:rgba(255,215,0,0.05);}
+.lb-row.top2{border-color:silver;background:rgba(192,192,192,0.04);}
+.lb-row.top3{border-color:#cd7f32;background:rgba(205,127,50,0.04);}
+.lb-medal{font-size:1.5rem;flex-shrink:0;width:36px;}
+.lb-rank-num{font-family:'Press Start 2P',monospace;font-size:0.55rem;color:#555;width:24px;text-align:right;}
+.lb-name{font-family:'Press Start 2P',monospace;font-size:0.6rem;color:white;flex:1;text-align:left;}
+.lb-pts{font-family:'Press Start 2P',monospace;font-size:0.55rem;color:var(--yellow);}
+.lb-record{font-size:0.75rem;color:#555;margin-left:4px;}
+.no-data{color:#444;font-size:0.9rem;margin-top:40px;}
+.back-link{color:#444;font-size:0.78rem;text-decoration:none;transition:color 0.2s;margin-top:30px;display:inline-block;}
+.back-link:hover{color:var(--yellow);}
+/* panic */
+</style>
+</head>
+<body>
+<div class="logo">🏆 LEADERBOARD</div>
+<p class="sub">+10 pts per win &nbsp;·&nbsp; -10 pts per loss</p>
+<div class="lb-wrap" id="lb-wrap">
+    <p class="no-data">Loading...</p>
+</div>
+<a href="/online" class="back-link">← Back to Online</a>
+
+<!-- PANIC BUTTON -->
+<a href="/article" style="position:fixed;top:16px;left:16px;z-index:99999;background:#ff1a1a;color:white;font-family:Arial,sans-serif;font-weight:bold;font-size:0.95rem;padding:17px 22px;border-radius:10px;text-decoration:none;box-shadow:0 4px 20px rgba(255,26,26,0.6);line-height:1.5;text-align:center;">🚨 TEACHER<br>COMING</a>
+
+<script>
+const MEDALS=['🥇','🥈','🥉'];
+async function loadLB(){
+    const res=await fetch('/api/leaderboard');
+    const data=await res.json();
+    const wrap=document.getElementById('lb-wrap');
+    if(!data.players||data.players.length===0){
+        wrap.innerHTML='<p class="no-data">No players yet. Play some games!</p>';
+        return;
+    }
+    wrap.innerHTML=data.players.map((p,i)=>{
+        const cls=i===0?'top1':i===1?'top2':i===2?'top3':'';
+        const medal=i<3?`<span class="lb-medal">${MEDALS[i]}</span>`:`<span class="lb-rank-num">#${i+1}</span>`;
+        return `<div class="lb-row ${cls}">
+            ${medal}
+            <span class="lb-name">${p.username}</span>
+            <span class="lb-pts">${p.points} pts</span>
+            <span class="lb-record">${p.wins}W/${p.losses}L</span>
+        </div>`;
+    }).join('');
+}
+loadLB();
+</script>
 </body>
 </html>
 """
