@@ -1088,11 +1088,11 @@ def online_logout():
 
 @app.route("/online/friend")
 def online_friend():
-    return render_template_string(online_friend_html)
+    return render_template_string(online_friend_html, logged_in_user=session.get('online_user', ''))
 
 @app.route("/online/random")
 def online_random():
-    return render_template_string(online_random_html)
+    return render_template_string(online_random_html, logged_in_user=session.get('online_user', ''))
 
 @app.route("/api/stats/<username>")
 def stats(username):
@@ -1596,7 +1596,12 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 
     <div class="input-group">
         <label>Your Username</label>
+        {% if logged_in_user %}
+        <input type="text" id="username" value="{{ logged_in_user }}" readonly style="opacity:0.7;cursor:not-allowed;border-color:#3a5a80;">
+        <small style="color:#74b9ff;font-size:0.7rem;margin-top:5px;display:block;">&#10003; Logged in — username locked</small>
+        {% else %}
         <input type="text" id="username" maxlength="20" placeholder="Ash" autocomplete="off">
+        {% endif %}
     </div>
 
     <p style="color:#555;font-size:0.72rem;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;">Choose your Pokémon</p>
@@ -2032,7 +2037,12 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
     <p class="sub">Get matched with a stranger</p>
     <div class="input-group">
         <label>Your Username</label>
+        {% if logged_in_user %}
+        <input type="text" id="username" value="{{ logged_in_user }}" readonly style="opacity:0.7;cursor:not-allowed;border-color:#3a5a80;">
+        <small style="color:#74b9ff;font-size:0.7rem;margin-top:5px;display:block;">&#10003; Logged in — username locked</small>
+        {% else %}
         <input type="text" id="username" maxlength="20" placeholder="Ash" autocomplete="off">
+        {% endif %}
     </div>
     <p style="color:#555;font-size:0.72rem;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;">Choose your Pokémon</p>
     <div class="pokemon-pick">
