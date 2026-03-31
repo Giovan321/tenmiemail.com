@@ -914,6 +914,25 @@ def get_or_create_user(username):
     cur.close(); conn.close()
     return {"id": row[0], "wins": row[1], "losses": row[2]}
 
+def update_fav_pokemon(username, pokemon):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT fav_pokemon, fav_pokemon_picks FROM usernames WHERE username=%s", (username,))
+    row = cur.fetchone()
+    if row:
+        fav, picks = row
+        picks = picks or 0
+        if fav is None or picks == 0:
+            cur.execute("UPDATE usernames SET fav_pokemon=%s, fav_pokemon_picks=1 WHERE username=%s", (pokemon, username))
+        elif fav == pokemon:
+            cur.execute("UPDATE usernames SET fav_pokemon_picks=fav_pokemon_picks+1 WHERE username=%s", (username,))
+        else:
+            if picks <= 1:
+                cur.execute("UPDATE usernames SET fav_pokemon=%s, fav_pokemon_picks=1 WHERE username=%s", (pokemon, username))
+            else:
+                cur.execute("UPDATE usernames SET fav_pokemon_picks=fav_pokemon_picks-1 WHERE username=%s", (username,))
+    conn.commit(); cur.close(); conn.close()
+
 def save_match(p1, p2, winner):
     conn = get_conn()
     cur = conn.cursor()
@@ -929,19 +948,19 @@ def save_match(p1, p2, winner):
 def get_stats(username):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT wins, losses FROM usernames WHERE username=%s", (username,))
+    cur.execute("SELECT wins, losses, fav_pokemon FROM usernames WHERE username=%s", (username,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         return None
-    wins, losses = row
+    wins, losses, fav_pokemon = row
     total = wins + losses
     rate = round((wins/total)*100) if total > 0 else 0
     points = wins * 10 - losses * 10
     cur.execute("SELECT COUNT(*)+1 FROM usernames WHERE wins*10 - losses*10 > %s", (points,))
     rank = cur.fetchone()[0]
     cur.close(); conn.close()
-    return {"wins": wins, "losses": losses, "total": total, "rate": rate, "points": points, "rank": rank}
+    return {"wins": wins, "losses": losses, "total": total, "rate": rate, "points": points, "rank": rank, "fav_pokemon": fav_pokemon}
 
 def get_leaderboard(limit=10):
     conn = get_conn()
@@ -1060,12 +1079,13 @@ def on_join_friend(data):
     sid      = request.sid
 
     get_or_create_user(username)
+    update_fav_pokemon(username, pokemon)
 
     if not code:
         # Create new room
         code = make_code()
         rooms[code] = {
-            'players': [{'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False}],
+            'players': [{'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False, 'heal_blocked': 0}],
             'turn': 0,
             'started': False
         }
@@ -1080,7 +1100,7 @@ def on_join_friend(data):
         if len(room['players']) >= 2:
             emit('error', {'msg': 'Room is full'})
             return
-        room['players'].append({'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False})
+        room['players'].append({'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False, 'heal_blocked': 0})
         join_room(code)
         start_game(code)
 
@@ -1091,6 +1111,7 @@ def on_join_random(data):
     sid      = request.sid
 
     get_or_create_user(username)
+    update_fav_pokemon(username, pokemon)
 
     # Check if someone is waiting
     if waiting_pool:
@@ -1099,7 +1120,7 @@ def on_join_random(data):
         rooms[code] = {
             'players': [
                 waiting,
-                {'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False}
+                {'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False, 'heal_blocked': 0}
             ],
             'turn': 0,
             'started': False
@@ -1110,7 +1131,7 @@ def on_join_random(data):
         socketio.server.enter_room(waiting['sid'], code)
         start_game(code)
     else:
-        waiting_pool.append({'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False})
+        waiting_pool.append({'sid': sid, 'username': username, 'pokemon': pokemon, 'hp': 150, 'dodge': False, 'heal_blocked': 0})
         emit('waiting', {'msg': 'Waiting for opponent...'})
 
 @socketio.on('cancel_random')
@@ -1186,7 +1207,19 @@ def on_attack(data):
         defender['hp'] -= dmg
         defender['hp'] = max(0, defender['hp'])
 
+        # Healing: charge blocks attacker healing for 2 turns
+        if move == 'charge':
+            attacker['heal_blocked'] = 2
+        if attacker.get('heal_blocked', 0) > 0:
+            attacker['heal_blocked'] -= 1
+            heal = 0
+        else:
+            heal = 30
+        attacker['hp'] = min(150, attacker['hp'] + heal)
+
         msg = f"⚔️ {attacker['username']} used {move} — {dmg} damage!"
+        if heal > 0:
+            msg += f" (+{heal}❤️)"
 
         if defender['hp'] <= 0:
             winner = attacker['username']
@@ -1254,7 +1287,7 @@ def on_rematch_accept(data):
     players = rd['p']
     new_code = make_code()
     rooms[new_code] = {
-        'players': [{'sid': p['sid'], 'username': p['username'], 'pokemon': p['pokemon'], 'hp': 150, 'dodge': False} for p in players],
+        'players': [{'sid': p['sid'], 'username': p['username'], 'pokemon': p['pokemon'], 'hp': 150, 'dodge': False, 'heal_blocked': 0} for p in players],
         'turn': 0, 'started': False
     }
     for p in players:
@@ -1359,7 +1392,8 @@ async function checkStats(){
     const el  = document.getElementById('stats-result');
     if(res.status===404){ el.innerHTML='❌ Username not found.'; return; }
     const d = await res.json();
-    el.innerHTML = `<span class="big">${d.rate}%</span> win rate &nbsp;·&nbsp; <span class="big" style="color:#c084fc">#${d.rank}</span> rank<br>${d.wins} wins · ${d.losses} losses · ${d.total} games · <strong>${d.points} pts</strong>`;
+    const favLine = d.fav_pokemon ? `<br>⭐ Fav: <strong>${d.fav_pokemon.toUpperCase()}</strong>` : '';
+    el.innerHTML = `<span class="big">${d.rate}%</span> win rate &nbsp;·&nbsp; <span class="big" style="color:#c084fc">#${d.rank}</span> rank<br>${d.wins} wins · ${d.losses} losses · ${d.total} games · <strong>${d.points} pts</strong>${favLine}`;
 }
 document.getElementById('stats-input').addEventListener('keydown', e=>{ if(e.key==='Enter') checkStats(); });
 </script>
