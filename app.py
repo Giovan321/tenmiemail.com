@@ -10,7 +10,7 @@ app.secret_key = 'pk_b4ttl3_s3cr3t_k3y_2024_x9z'
 
 def get_conn():
     return psycopg2.connect(
-        dbname="registros_dev",
+        dbname="registros",
         user="DatabaseGio",
         password="giovan12",
         host="18.218.222.117",
