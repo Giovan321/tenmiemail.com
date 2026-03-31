@@ -1,0 +1,156 @@
+===============================================
+INSTRUCCIONES PARA RECONSTRUIR EL SERVIDOR
+===============================================
+
+=== 1. SERVIDOR UBUNTU (AWS EC2) ===
+
+# Actualizar sistema
+sudo apt update && sudo apt upgrade -y
+
+# Instalar dependencias
+sudo apt install python3 python3-venv python3-pip nginx postgresql postgresql-contrib -y
+
+# Crear directorio del proyecto
+mkdir ~/tenmiemail.com
+cd ~/tenmiemail.com
+
+# Crear entorno virtual
+python3 -m venv venv
+source venv/bin/activate
+
+# Instalar dependencias Python
+pip install flask gunicorn psycopg2-binary flask-socketio eventlet werkzeug
+
+# Crear requirements.txt
+pip freeze > requirements.txt
+
+# Subir app.py (tu código)
+
+
+=== 2. CONFIGURAR POSTGRESQL ===
+
+# Entrar a PostgreSQL
+sudo -u postgres psql
+
+# Crear usuario con contraseña
+CREATE USER "DatabaseGio" WITH PASSWORD 'giovan12';
+
+# Dar permisos para crear bases de datos (opcional)
+ALTER USER "DatabaseGio" CREATEDB;
+
+# Crear bases de datos
+CREATE DATABASE registros OWNER "DatabaseGio";
+CREATE DATABASE registros_dev OWNER "DatabaseGio";
+
+# Conectar a producción
+\c registros
+
+# Crear tablas (copiar del archivo database_schema.sql abajo)
+
+# Dar permisos
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "DatabaseGio";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "DatabaseGio";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "DatabaseGio";
+
+# Repetir para registros_dev
+\c registros_dev
+# (mismas tablas y permisos)
+
+# Salir de psql
+\q
+
+
+=== 3. PERMITIR CONEXIONES REMOTAS A POSTGRESQL ===
+
+# Editar postgresql.conf
+sudo nano /etc/postgresql/16/main/postgresql.conf
+# Cambiar: listen_addresses = '*'
+
+# Editar pg_hba.conf
+sudo nano /etc/postgresql/16/main/pg_hba.conf
+# Añadir al final:
+host    all    all    0.0.0.0/0    md5
+
+# Reiniciar PostgreSQL
+sudo systemctl restart postgresql
+
+
+=== 4. CONFIGURAR GUNICORN SERVICE ===
+
+sudo nano /etc/systemd/system/pokemon.service
+
+# Contenido:
+[Unit]
+Description=Pokemon Flask App
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/tenmiemail.com
+Environment="PATH=/home/ubuntu/tenmiemail.com/venv/bin"
+ExecStart=/home/ubuntu/tenmiemail.com/venv/bin/gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:5000 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+# Activar servicio
+sudo systemctl daemon-reload
+sudo systemctl enable pokemon
+sudo systemctl start pokemon
+
+
+=== 5. CONFIGURAR NGINX ===
+
+sudo nano /etc/nginx/sites-available/pokemon
+
+# Contenido:
+server {
+    listen 80;
+    server_name tu-dominio.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+
+# Activar sitio
+sudo ln -s /etc/nginx/sites-available/pokemon /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+
+
+=== 6. ABRIR PUERTOS EN AWS ===
+
+En Security Groups, abrir:
+- Puerto 22 (SSH)
+- Puerto 80 (HTTP)
+- Puerto 443 (HTTPS)
+- Puerto 5432 (PostgreSQL) - solo si DB en otro servidor
+
+
+=== 7. COMANDOS ÚTILES ===
+
+# Ver logs
+sudo journalctl -u pokemon -f
+
+# Reiniciar app
+sudo systemctl restart pokemon
+
+# Ver estado
+sudo systemctl status pokemon
+
+# Entrar a DB
+sudo -u postgres psql -d registros
+
+# Ver usuarios de PostgreSQL
+sudo -u postgres psql -c "\du"
+
+# Ver bases de datos
+sudo -u postgres psql -c "\l"
+

@@ -1,0 +1,82 @@
+put the next instruccions to recreate the db in postresql:
+
+-- ===============================================
+-- DATABASE SCHEMA - POKEMON BATTLE
+-- ===============================================
+
+-- Ejecutar como usuario postgres:
+-- sudo -u postgres psql
+
+-- Crear usuario
+CREATE USER "DatabaseGio" WITH PASSWORD 'giovan12';
+ALTER USER "DatabaseGio" CREATEDB;
+
+-- Crear bases de datos
+CREATE DATABASE registros OWNER "DatabaseGio";
+CREATE DATABASE registros_dev OWNER "DatabaseGio";
+
+-- Conectar a registros
+\c registros
+
+-- Tabla de usuarios registrados (emails)
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL
+);
+
+-- Tabla de jugadores online
+CREATE TABLE IF NOT EXISTS usernames (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(20) UNIQUE NOT NULL,
+    wins INTEGER DEFAULT 0,
+    losses INTEGER DEFAULT 0,
+    fav_pokemon VARCHAR(20) DEFAULT NULL,
+    fav_pokemon_picks INTEGER DEFAULT 0,
+    password_hash VARCHAR(255) DEFAULT NULL
+);
+
+-- Tabla de partidas
+CREATE TABLE IF NOT EXISTS matches (
+    id SERIAL PRIMARY KEY,
+    player1 VARCHAR(20),
+    player2 VARCHAR(20),
+    winner VARCHAR(20),
+    played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Permisos
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "DatabaseGio";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "DatabaseGio";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "DatabaseGio";
+
+-- ===============================================
+-- REPETIR PARA registros_dev
+-- ===============================================
+\c registros_dev
+
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS usernames (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(20) UNIQUE NOT NULL,
+    wins INTEGER DEFAULT 0,
+    losses INTEGER DEFAULT 0,
+    fav_pokemon VARCHAR(20) DEFAULT NULL,
+    fav_pokemon_picks INTEGER DEFAULT 0,
+    password_hash VARCHAR(255) DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS matches (
+    id SERIAL PRIMARY KEY,
+    player1 VARCHAR(20),
+    player2 VARCHAR(20),
+    winner VARCHAR(20),
+    played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "DatabaseGio";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "DatabaseGio";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "DatabaseGio";
