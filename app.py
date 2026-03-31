@@ -1,10 +1,12 @@
-from flask import Flask, request, render_template_string, session
+from flask import Flask, request, render_template_string, session, redirect, url_for
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from werkzeug.security import generate_password_hash, check_password_hash
 import random, string
 import psycopg2
 import eventlet
 
 app = Flask(__name__)
+app.secret_key = 'pk_b4ttl3_s3cr3t_k3y_2024_x9z'
 
 def get_conn():
     return psycopg2.connect(
@@ -1043,9 +1045,46 @@ def game():
 def article():
     return render_template_string(article_html)
 
-@app.route("/online")
+@app.route("/online", methods=["GET", "POST"])
 def online():
-    return render_template_string(online_html)
+    error = ""
+    if 'online_user' in session:
+        return render_template_string(online_html, logged_in=True, username=session['online_user'], error="")
+    if request.method == "POST":
+        action   = request.form.get("action", "")
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+        if not username or not password:
+            error = "Please enter username and password."
+        else:
+            conn = get_conn()
+            cur  = conn.cursor()
+            cur.execute("SELECT password_hash FROM usernames WHERE username = %s", (username,))
+            row = cur.fetchone()
+            if action == "register":
+                if row is not None:
+                    error = "Username already taken."
+                else:
+                    hashed = generate_password_hash(password)
+                    cur.execute("INSERT INTO usernames (username, password_hash) VALUES (%s, %s)", (username, hashed))
+                    conn.commit()
+                    session['online_user'] = username
+                    cur.close(); conn.close()
+                    return redirect(url_for('online'))
+            elif action == "login":
+                if row is None or not check_password_hash(row[0], password):
+                    error = "Invalid username or password."
+                else:
+                    session['online_user'] = username
+                    cur.close(); conn.close()
+                    return redirect(url_for('online'))
+            cur.close(); conn.close()
+    return render_template_string(online_html, logged_in=False, username="", error=error)
+
+@app.route("/online/logout")
+def online_logout():
+    session.pop('online_user', None)
+    return redirect(url_for('online'))
 
 @app.route("/online/friend")
 def online_friend():
@@ -1349,10 +1388,30 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
 #stats-result .big{font-family:'Press Start 2P',monospace;font-size:1rem;color:var(--yellow);}
 .back-link{color:#444;font-size:0.78rem;text-decoration:none;transition:color 0.2s;}
 .back-link:hover{color:var(--yellow);}
+/* auth form */
+.auth-box{background:var(--card);border:2px solid rgba(255,215,0,0.2);border-radius:20px;padding:36px 40px;max-width:380px;width:100%;margin-bottom:28px;}
+.auth-box h2{font-family:'Press Start 2P',monospace;font-size:0.75rem;color:var(--yellow);margin-bottom:24px;}
+.auth-field{margin-bottom:16px;text-align:left;}
+.auth-field label{display:block;font-size:0.72rem;color:#888;margin-bottom:7px;letter-spacing:1px;text-transform:uppercase;}
+.auth-field input{width:100%;background:#0d0d1a;border:2px solid #2a3050;color:white;padding:13px 16px;border-radius:10px;font-family:'Nunito',sans-serif;font-size:1rem;outline:none;transition:border-color 0.2s;}
+.auth-field input:focus{border-color:var(--yellow);}
+.auth-btns{display:flex;gap:10px;margin-top:20px;}
+.btn-login{flex:1;background:linear-gradient(135deg,var(--orange),var(--yellow));color:#000;border:none;padding:13px;border-radius:10px;font-family:'Press Start 2P',monospace;font-size:0.6rem;cursor:pointer;transition:transform 0.2s;}
+.btn-login:hover{transform:translateY(-2px);}
+.btn-register{flex:1;background:transparent;color:var(--yellow);border:2px solid var(--yellow);padding:13px;border-radius:10px;font-family:'Press Start 2P',monospace;font-size:0.6rem;cursor:pointer;transition:all 0.2s;}
+.btn-register:hover{background:rgba(255,215,0,0.1);}
+.auth-error{color:#ff6b6b;font-size:0.82rem;margin-top:12px;min-height:1.2em;}
+.user-greeting{font-size:0.9rem;color:#aaa;margin-bottom:10px;}
+.user-greeting strong{color:var(--yellow);}
+.logout-link{color:#555;font-size:0.75rem;text-decoration:none;margin-left:12px;}
+.logout-link:hover{color:#ff6b6b;}
 </style>
 </head>
 <body>
 <div class="logo">⚡ ONLINE BATTLE</div>
+
+{% if logged_in %}
+<p class="user-greeting">Logged in as <strong>{{ username }}</strong> <a href="/online/logout" class="logout-link">Logout</a></p>
 <p class="sub">Choose your mode</p>
 
 <div class="cards">
@@ -1382,6 +1441,29 @@ body{font-family:'Nunito',sans-serif;background:var(--dark);color:white;min-heig
     <div id="stats-result"></div>
 </div>
 
+{% else %}
+<p class="sub">Sign in to play online</p>
+
+<div class="auth-box">
+    <h2>🔐 ACCOUNT</h2>
+    <form method="POST" autocomplete="on">
+        <div class="auth-field">
+            <label>Username</label>
+            <input type="text" name="username" placeholder="your_username" maxlength="30" autocomplete="username" required>
+        </div>
+        <div class="auth-field">
+            <label>Password</label>
+            <input type="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
+        </div>
+        <div class="auth-btns">
+            <button type="submit" name="action" value="login" class="btn-login">LOGIN</button>
+            <button type="submit" name="action" value="register" class="btn-register">REGISTER</button>
+        </div>
+        {% if error %}<p class="auth-error">⚠️ {{ error }}</p>{% endif %}
+    </form>
+</div>
+{% endif %}
+
 <a href="/" class="back-link">← Back to home</a>
 
 <script>
@@ -1395,7 +1477,8 @@ async function checkStats(){
     const favLine = d.fav_pokemon ? `<br>⭐ Fav: <strong>${d.fav_pokemon.toUpperCase()}</strong>` : '';
     el.innerHTML = `<span class="big">${d.rate}%</span> win rate &nbsp;·&nbsp; <span class="big" style="color:#c084fc">#${d.rank}</span> rank<br>${d.wins} wins · ${d.losses} losses · ${d.total} games · <strong>${d.points} pts</strong>${favLine}`;
 }
-document.getElementById('stats-input').addEventListener('keydown', e=>{ if(e.key==='Enter') checkStats(); });
+const statsInput = document.getElementById('stats-input');
+if(statsInput) statsInput.addEventListener('keydown', e=>{ if(e.key==='Enter') checkStats(); });
 </script>
 
 <!-- PANIC BUTTON -->
@@ -1845,6 +1928,14 @@ function sendAttack(move){
     box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
+<!-- LOGOUT BUTTON -->
+<a href="/online/logout" style="
+    position:fixed; top:16px; right:16px; z-index:99999;
+    background:#1e2a4a; color:#aaa;
+    font-family:Arial,sans-serif; font-size:0.8rem;
+    padding:10px 16px; border-radius:8px;
+    text-decoration:none; border:1px solid #2a3050;
+">Logout</a>
 </body>
 </html>
 """
@@ -2194,6 +2285,14 @@ function sendAttack(move){stopTimer();document.querySelectorAll('.atk-btn').forE
     box-shadow:0 4px 20px rgba(255,26,26,0.6);
     line-height:1.5; text-align:center;
 ">🚨 TEACHER<br>COMING</a>
+<!-- LOGOUT BUTTON -->
+<a href="/online/logout" style="
+    position:fixed; top:16px; right:16px; z-index:99999;
+    background:#1e2a4a; color:#aaa;
+    font-family:Arial,sans-serif; font-size:0.8rem;
+    padding:10px 16px; border-radius:8px;
+    text-decoration:none; border:1px solid #2a3050;
+">Logout</a>
 </body>
 </html>
 """
